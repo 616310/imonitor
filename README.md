@@ -12,10 +12,8 @@ iMonitor 是一套开箱即用的服务器资源监控平台，包含 FastAPI �
 
 ## 本地部署
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8080
+cargo build --release
+./target/release/imonitor
 ```
 浏览器访问 `http://服务器IP:8080`。首次默认只有本机，可在 UI 中点“节点接入”生成接入命令。
 

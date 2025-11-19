@@ -10,10 +10,8 @@ Production-ready server resource monitor featuring a FastAPI backend, polished V
 
 ## Quick Start
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8080
+cargo build --release
+./target/release/imonitor
 ```
 
 Visit `http://localhost:8080` to view the dashboard. Generate a token via “节点接入” and run the displayed command on any Linux server to enroll it.

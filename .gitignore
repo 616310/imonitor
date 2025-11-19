@@ -5,3 +5,4 @@ __pycache__/
 data/
 /tmp/
 *.sqlite3
+target/
