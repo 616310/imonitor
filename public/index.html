@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>iMonitor Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: url('https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop') no-repeat center center fixed;
+            background-size: cover;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            color: #1f2937;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px) saturate(160%);
+            -webkit-backdrop-filter: blur(20px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.02);
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        .hover-scale:hover {
+            transform: translateY(-6px);
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 20px 40px -5px rgba(0,0,0,0.06);
+        }
+        .liquid-bar { transition: height 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .modal-mask {
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .pop-enter-active, .pop-leave-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92) translateY(15px); }
+    </style>
+</head>
+<body class="antialiased min-h-screen pb-10">
+<div id="app" class="min-h-screen flex flex-col items-center py-6 px-4 sm:px-8 md:py-10">
+    <header class="w-full max-w-7xl flex justify-between items-center mb-10 glass-panel rounded-2xl px-6 py-4 z-20 sticky top-4">
+        <div class="flex items-center gap-4">
+            <div class="w-10 h-10 bg-black/80 rounded-xl flex items-center justify-center text-white shadow-lg">
+                <i class="ph-bold ph-activity text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-gray-900">iMonitor</h1>
+                <div class="flex items-center gap-2 text-xs text-gray-500 font-medium">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="overallHealthClass"></span>
+                    <p>{{ overallHealth }}</p>
+                    <span class="text-gray-400" v-if="lastUpdated">· 刷新于 {{ formatTime(lastUpdated) }}</span>
+                </div>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <button @click="fetchNodes" class="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold flex items-center gap-2 transition">
+                <i class="ph-bold ph-arrow-clockwise"></i>
+                手动刷新
+            </button>
+            <button @click="openAddModal" class="bg-white hover:bg-gray-50 text-gray-800 px-4 py-2.5 rounded-full font-bold text-sm transition-all shadow-md border border-gray-100 flex items-center gap-2 active:scale-95">
+                <i class="ph-bold ph-plus-circle text-lg text-blue-500"></i>
+                <span>节点接入</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="w-full max-w-7xl grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <div v-for="server in servers" :key="server.id"
+             @click="showDetail(server)"
+             class="glass-card rounded-[2rem] p-6 relative cursor-pointer hover-scale group flex flex-col justify-between">
+            <div class="mb-6 flex justify-between items-start">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-white/60 border border-white shadow-sm flex items-center justify-center text-2xl">
+                        {{ server.flag }}
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-gray-800 tracking-tight leading-tight">{{ server.displayName }}</h2>
+                        <p class="text-xs text-gray-500 mt-1 font-medium flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full" :class="server.statusDot"></span>
+                            {{ server.statusText }} · {{ server.data.os_simple }}
+                        </p>
+                    </div>
+                </div>
+                <div v-if="server.status === 'online'" class="px-2.5 py-1 bg-white/50 rounded-lg border border-white/50">
+                    <span class="text-[10px] font-bold text-green-600 uppercase tracking-wider">Running</span>
+                </div>
+                <div v-else class="px-2.5 py-1 bg-white/50 rounded-lg border border-white/50">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{{ server.statusText }}</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3 mb-6">
+                <div class="relative h-28 rounded-2xl bg-gray-50/50 border border-white/60 overflow-hidden flex flex-col justify-between p-3">
+                    <div class="absolute bottom-0 left-0 w-full bg-blue-500/10 liquid-bar" :style="{height: server.data.cpu + '%'}"></div>
+                    <div class="relative z-10">
+                        <i class="ph-fill ph-cpu text-lg text-blue-500/80"></i>
+                        <span class="text-xl font-bold text-gray-800 block leading-none">{{ Math.round(server.data.cpu) }}<span class="text-xs text-gray-400 font-normal">%</span></span>
+                        <span class="text-[10px] font-bold text-gray-400 uppercase mt-1 block">CPU</span>
+                    </div>
+                </div>
+                <div class="relative h-28 rounded-2xl bg-gray-50/50 border border-white/60 overflow-hidden flex flex-col justify-between p-3">
+                    <div class="absolute bottom-0 left-0 w-full bg-purple-500/10 liquid-bar" :style="{height: server.data.memory_percent + '%'}"></div>
+                    <div class="relative z-10">
+                        <i class="ph-fill ph-memory text-lg text-purple-500/80"></i>
+                        <span class="text-xl font-bold text-gray-800 block leading-none">{{ Math.round(server.data.memory_percent) }}<span class="text-xs text-gray-400 font-normal">%</span></span>
+                        <span class="text-[10px] font-bold text-gray-400 uppercase mt-1 block">RAM</span>
+                    </div>
+                </div>
+                <div class="relative h-28 rounded-2xl bg-gray-50/50 border border-white/60 overflow-hidden flex flex-col justify-between p-3">
+                    <div class="absolute bottom-0 left-0 w-full bg-orange-500/10 liquid-bar" :style="{height: server.data.disk_percent + '%'}"></div>
+                    <div class="relative z-10">
+                        <i class="ph-fill ph-hard-drives text-lg text-orange-500/80"></i>
+                        <span class="text-xl font-bold text-gray-800 block leading-none">{{ Math.round(server.data.disk_percent) }}<span class="text-xs text-gray-400 font-normal">%</span></span>
+                        <span class="text-[10px] font-bold text-gray-400 uppercase mt-1 block">SSD</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white/40 border border-white/60 rounded-xl p-3.5 flex justify-between items-center">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-blue-500 shadow-sm">
+                        <i class="ph-bold ph-arrow-up"></i>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">上传速率</span>
+                        <span class="text-xs font-bold text-gray-700 font-mono">{{ server.data.net_sent_speed }} MB/s</span>
+                    </div>
+                </div>
+                <div class="w-px h-8 bg-gray-200/50"></div>
+                <div class="flex items-center gap-2.5 justify-end">
+                    <div class="flex flex-col items-end">
+                        <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">下载速率</span>
+                        <span class="text-xs font-bold text-gray-700 font-mono">{{ server.data.net_recv_speed }} MB/s</span>
+                    </div>
+                    <div class="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-green-500 shadow-sm">
+                        <i class="ph-bold ph-arrow-down"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="absolute inset-0 z-20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                <span class="bg-white/80 backdrop-blur-md text-gray-800 text-xs font-bold px-4 py-2 rounded-full shadow-xl transform translate-y-2 group-hover:translate-y-0 transition-transform">
+                    点击查看详细参数
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-10 text-center text-sm text-gray-500" v-if="servers.length === 0">
+        暂无节点数据，等待 Agent 上报...
+    </div>
+
+    <transition name="pop">
+        <div v-if="activeServer" class="fixed inset-0 z-50 flex items-center justify-center modal-mask p-4 sm:p-6" @click.self="closeDetail">
+            <div class="bg-white/95 backdrop-blur-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col rounded-[2.5rem] shadow-2xl ring-1 ring-black/5">
+                <div class="p-8 pb-6 flex justify-between items-start">
+                    <div class="flex gap-5">
+                        <div class="text-6xl filter drop-shadow-lg transform -translate-y-1">{{ activeServer.flag }}</div>
+                        <div>
+                            <h2 class="text-3xl font-bold text-gray-900 tracking-tight">{{ activeServer.displayName }}</h2>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold uppercase tracking-wider">{{ activeServer.data.arch }}</span>
+                                <span class="text-sm font-medium text-gray-500">{{ activeServer.data.os_full }}</span>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-2">IP: {{ activeServer.ip || '未知' }} · 上次同步 {{ formatTime(activeServer.last_seen) }}</div>
+                        </div>
+                    </div>
+                    <button @click="closeDetail" class="bg-gray-100 hover:bg-gray-200 w-9 h-9 rounded-full flex items-center justify-center transition-colors">
+                        <i class="ph-bold ph-x text-gray-500"></i>
+                    </button>
+                </div>
+
+                <div class="p-8 pt-2 space-y-8 overflow-y-auto no-scrollbar">
+                    <div class="bg-gray-50 rounded-3xl p-6 border border-gray-100">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <i class="ph-fill ph-cpu"></i> 处理器信息
+                        </h3>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-lg font-bold text-gray-800">{{ activeServer.data.cpu_model }}</div>
+                                <div class="text-sm text-gray-500 mt-1">{{ activeServer.data.cpu_cores }} 物理核心 · Load {{ activeServer.data.load_avg.join(' / ') }}</div>
+                            </div>
+                            <div class="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl text-gray-800 shadow-sm">
+                                <i class="ph-duotone ph-microchip"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 ml-1">总流量统计</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-blue-50 rounded-3xl p-5 border border-blue-100/50 relative overflow-hidden">
+                                <div class="relative z-10">
+                                    <div class="text-xs font-bold text-blue-400 uppercase mb-1">总上传</div>
+                                    <div class="text-3xl font-bold text-gray-800">{{ activeServer.data.total_sent }}<span class="text-sm text-gray-400 font-medium ml-1">GB</span></div>
+                                </div>
+                                <i class="ph-duotone ph-upload-simple absolute right-[-10px] bottom-[-15px] text-8xl text-blue-200/40 pointer-events-none"></i>
+                            </div>
+                            <div class="bg-green-50 rounded-3xl p-5 border border-green-100/50 relative overflow-hidden">
+                                <div class="relative z-10">
+                                    <div class="text-xs font-bold text-green-400 uppercase mb-1">总下载</div>
+                                    <div class="text-3xl font-bold text-gray-800">{{ activeServer.data.total_recv }}<span class="text-sm text-gray-400 font-medium ml-1">GB</span></div>
+                                </div>
+                                <i class="ph-duotone ph-download-simple absolute right-[-10px] bottom-[-15px] text-8xl text-green-200/40 pointer-events-none"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 ml-1">系统负载 (Load Avg)</h3>
+                        <div class="grid grid-cols-3 gap-4">
+                            <div v-for="(load, idx) in activeServer.data.load_avg" :key="idx" class="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-center">
+                                <div class="text-xl font-bold text-gray-800">{{ load }}</div>
+                                <div class="text-[10px] text-gray-400 uppercase font-bold mt-1">{{ [1,5,15][idx] }} 分钟</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-6 bg-gray-50 border-t border-gray-100 flex justify-between items-center rounded-b-[2.5rem]">
+                    <div class="flex items-center gap-2 text-xs text-gray-400 font-medium">
+                        <i class="ph-fill ph-timer"></i> 已连续运行 {{ formatUptime(activeServer.data.uptime) }}
+                    </div>
+                    <div class="text-xs text-gray-400">Token 尾号 {{ activeServer.tokenSuffix }}</div>
+                </div>
+            </div>
+        </div>
+    </transition>
+
+    <transition name="pop">
+        <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center modal-mask p-4" @click.self="closeAddModal">
+            <div class="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl p-8">
+                <div class="text-center mb-6">
+                    <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🚀</div>
+                    <h3 class="text-2xl font-bold text-gray-900">接入新节点</h3>
+                    <p class="text-gray-500 text-sm mt-2">在目标服务器终端执行以下命令即可。</p>
+                </div>
+                <div class="space-y-3 mb-4">
+                    <label class="text-sm text-gray-600 font-medium flex flex-col gap-2">
+                        自定义标签（选填）
+                        <input type="text" v-model="pendingLabel" placeholder="如：HK-Edge-01" class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring focus:ring-blue-200" />
+                    </label>
+                    <button @click="reserveNode" class="w-full bg-gray-900 text-white rounded-xl py-3.5 font-semibold hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                        <i class="ph-bold ph-seal-check"></i> 生成接入令牌
+                    </button>
+                </div>
+                <div v-if="installCommand" class="bg-gray-900 rounded-xl p-5 mb-6 group relative cursor-pointer transition hover:scale-[1.01]" @click="copyCommand">
+                    <code class="font-mono text-sm text-green-400 break-all leading-relaxed">{{ installCommand }}</code>
+                    <div class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl backdrop-blur-[2px]">
+                        <span class="text-white font-bold text-sm flex items-center gap-2"><i class="ph-bold ph-copy"></i> 点击复制命令</span>
+                    </div>
+                </div>
+                <button @click="closeAddModal" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3.5 rounded-xl transition">关闭</button>
+            </div>
+        </div>
+    </transition>
+</div>
+
+<script>
+const { createApp, ref, onMounted, computed } = Vue;
+
+createApp({
+    setup() {
+        const servers = ref([]);
+        const activeServer = ref(null);
+        const showAddModal = ref(false);
+        const installCommand = ref('');
+        const pendingLabel = ref('');
+        const lastUpdated = ref(null);
+        const timerHandle = ref(null);
+
+        const fetchNodes = async () => {
+            try {
+                const res = await fetch('/api/nodes');
+                if (!res.ok) throw new Error('加载失败');
+                const data = await res.json();
+                lastUpdated.value = data.generated_at;
+                servers.value = (data.nodes || []).map(transformNode);
+            } catch (err) {
+                console.error(err);
+            }
+        };
+
+        const transformNode = (node) => {
+            const meta = node.meta || {};
+            const metrics = node.metrics || {};
+            const flag = meta.flag || '🖥️';
+            const status = node.status || 'pending';
+            const safe = (val, fallback = 0) => typeof val === 'number' ? val : fallback;
+            return {
+                id: node.id,
+                flag,
+                status,
+                statusText: status === 'online' ? '实时在线' : status === 'offline' ? '离线' : '待接入',
+                statusDot: status === 'online' ? 'bg-green-500 animate-pulse' : status === 'offline' ? 'bg-red-500' : 'bg-yellow-400',
+                displayName: node.label || node.hostname || '未命名节点',
+                ip: node.ip_address,
+                last_seen: node.last_seen,
+                tokenSuffix: (node.id || '').slice(-6),
+                data: {
+                    os_simple: meta.os_short || meta.os || '未知系统',
+                    os_full: meta.os_full || meta.os || '未知系统',
+                    arch: meta.arch || 'N/A',
+                    cpu_model: meta.cpu_model || '未知 CPU',
+                    cpu_cores: meta.cpu_cores || '-',
+                    cpu: safe(metrics.cpu, 0),
+                    memory_percent: safe(metrics.memory_percent, 0),
+                    disk_percent: safe(metrics.disk_percent, 0),
+                    net_sent_speed: (metrics.net_sent_speed || 0).toFixed ? Number(metrics.net_sent_speed).toFixed(2) : metrics.net_sent_speed || '0',
+                    net_recv_speed: (metrics.net_recv_speed || 0).toFixed ? Number(metrics.net_recv_speed).toFixed(2) : metrics.net_recv_speed || '0',
+                    total_sent: Number(metrics.total_sent || 0).toFixed(2),
+                    total_recv: Number(metrics.total_recv || 0).toFixed(2),
+                    load_avg: metrics.load_avg || ['-', '-', '-'],
+                    uptime: metrics.uptime || 0
+                }
+            };
+        };
+
+        const showDetail = (server) => { activeServer.value = server; };
+        const closeDetail = () => { activeServer.value = null; };
+
+        const openAddModal = () => {
+            showAddModal.value = true;
+            installCommand.value = '';
+        };
+
+        const closeAddModal = () => {
+            showAddModal.value = false;
+            pendingLabel.value = '';
+        };
+
+        const reserveNode = async () => {
+            try {
+                const res = await fetch('/api/nodes/reserve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: pendingLabel.value || null })
+                });
+                if (!res.ok) throw new Error('无法生成令牌');
+                const data = await res.json();
+                installCommand.value = data.command;
+                pendingLabel.value = '';
+            } catch (err) {
+                alert(err.message || '生成失败');
+            }
+        };
+
+        const copyCommand = () => {
+            if (!installCommand.value) return;
+            navigator.clipboard.writeText(installCommand.value);
+            alert('命令已复制');
+        };
+
+        const formatUptime = (sec) => {
+            if (!sec) return '-';
+            const days = Math.floor(sec / 86400);
+            const hours = Math.floor((sec % 86400) / 3600);
+            const mins = Math.floor((sec % 3600) / 60);
+            if (days > 0) return `${days}天 ${hours}小时`;
+            if (hours > 0) return `${hours}小时 ${mins}分`;
+            return `${mins}分`;
+        };
+
+        const formatTime = (ts) => {
+            if (!ts) return '未知';
+            const date = new Date(ts * 1000);
+            return date.toLocaleTimeString();
+        };
+
+        const overallHealth = computed(() => {
+            if (!servers.value.length) return '等待上报';
+            const online = servers.value.filter(s => s.status === 'online').length;
+            return `在线 ${online}/${servers.value.length}`;
+        });
+
+        const overallHealthClass = computed(() => {
+            const online = servers.value.filter(s => s.status === 'online').length;
+            if (!servers.value.length) return 'bg-yellow-400 animate-pulse';
+            if (online === servers.value.length) return 'bg-green-500 animate-pulse';
+            if (online === 0) return 'bg-red-500 animate-pulse';
+            return 'bg-yellow-400 animate-pulse';
+        });
+
+        onMounted(() => {
+            fetchNodes();
+            timerHandle.value = setInterval(fetchNodes, 5000);
+        });
+
+        return {
+            servers,
+            activeServer,
+            showAddModal,
+            installCommand,
+            pendingLabel,
+            lastUpdated,
+            fetchNodes,
+            showDetail,
+            closeDetail,
+            openAddModal,
+            closeAddModal,
+            reserveNode,
+            copyCommand,
+            formatUptime,
+            formatTime,
+            overallHealth,
+            overallHealthClass
+        };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
