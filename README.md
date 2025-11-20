@@ -2,13 +2,13 @@
 
 **语言 / Language** · [中文](README.md) | [English](README.en.md)
 
-iMonitor 是一套开箱即用的服务器资源监控平台，包含 FastAPI 控制中心、Vue 3 + Tailwind UI、轻量级 Python Agent 以及一键安装脚本。支持本机/远程节点统一展示 CPU、内存、磁盘、负载、网络速率等指标，并可随时下发新的接入令牌。
+iMonitor 是一套开箱即用的服务器资源监控平台，包含 FastAPI 控制中心、Vue 3 + Tailwind UI、**极轻量 Rust Agent（二进制，免 Python）** 以及一键安装脚本。支持本机/远程节点统一展示 CPU、内存、磁盘、负载、网络速率等指标，并可随时下发新的接入令牌。
 
 ## 架构组成
 - **FastAPI 控制中心 (`app/`)**：管理节点元数据与指标，提供 `/api/nodes`、`/api/report`、`/install.sh` 等接口。
 - **Vue 前端 (`public/index.html`)**：复刻 iOS 玻璃拟态风格的看板，实时轮询节点状态并提供详情抽屉和“节点接入”弹窗。
-- **Agent (`scripts/agent.py`)**：依赖 `psutil`/`requests`，按固定频率上报主机指标，支持命令行参数或环境变量定制。
-- **一键安装脚本 (`scripts/install.sh`)**：下载 Agent、创建 venv、写入 `systemd` 服务 `imonitor-agent.service`，真正实现“在目标服务器执行一条命令即可接入”。
+- **Agent (`scripts/agent`)**：静态编译的 Rust 可执行文件，直接读取 `/proc` 与文件系统获取指标，无需 Python/依赖，默认每 5 秒上报。
+- **一键安装脚本 (`scripts/install.sh`)**：下载 Agent 与 musl loader（如目标机缺失），写入 `systemd` 服务 `imonitor-agent.service`，在低配/旧系统上也可部署。
 
 ## 本地部署
 ```bash

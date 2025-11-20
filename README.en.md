@@ -5,8 +5,8 @@ Production-ready server resource monitor featuring a FastAPI backend, polished V
 ## Components
 - **FastAPI core** (`app/`) – Stores node metadata in SQLite, exposes REST endpoints for UI, agent registration, and metric ingestion.
 - **Vue 3 UI** (`public/index.html`) – Modern glassmorphism dashboard showing CPU/RAM/disk, bandwidth, uptime, and per-node details.
-- **Agent** (`scripts/agent.py`) – Lightweight Python metrics collector using psutil, reporting to the controller via HTTPS.
-- **Installer** (`scripts/install.sh`) – One-command bootstrap that downloads the agent, writes env vars, and provisions a `systemd` service.
+- **Agent** (`scripts/agent`) – Static Rust binary reading `/proc` and filesystem; no Python/runtime required, defaults to 5s interval.
+- **Installer** (`scripts/install.sh`) – One-command bootstrap downloading the agent (and musl loader if needed), writing env vars, and provisioning a `systemd` service.
 
 ## Quick Start
 ```bash
