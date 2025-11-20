@@ -21,7 +21,38 @@ RUN_USER=${RUN_USER:-$default_user}
 read -r -p "服务监听端口 [${default_port}]: " PORT
 PORT=${PORT:-$default_port}
 
-PUBLIC_URL="http://127.0.0.1:${PORT}"
+detect_public_addr() {
+  for cmd in \
+    "curl -4 -s https://ifconfig.co" \
+    "curl -4 -s https://api.ipify.org" \
+    "hostname -I | awk '{print \$1}'"
+  do
+    addr=$(bash -lc "$cmd" 2>/dev/null | tr -d ' \n\r')
+    if [[ -n "$addr" ]]; then
+      echo "$addr"
+      return
+    fi
+  done
+}
+
+normalize_host() {
+  local host="$1"
+  host=${host#http://}
+  host=${host#https://}
+  host=${host%%/*}
+  # If IPv6 without brackets, wrap.
+  if [[ "$host" == *:*:* && "$host" != \[* ]]; then
+    host="[$host]"
+  fi
+  echo "$host"
+}
+
+AUTO_HOST=$(detect_public_addr || echo "127.0.0.1")
+read -r -p "公网访问地址/域名（留空自动检测） [${AUTO_HOST}]: " INPUT_HOST
+INPUT_HOST=${INPUT_HOST:-$AUTO_HOST}
+HOST_NORMALIZED=$(normalize_host "$INPUT_HOST")
+
+PUBLIC_URL="http://${HOST_NORMALIZED}:${PORT}"
 BIND_ADDR="[::]:${PORT}"
 
 echo "[1/5] 创建系统用户 ${RUN_USER}"
@@ -68,5 +99,5 @@ echo "[5/5] 状态查看"
 systemctl --no-pager status imonitor-lite.service || true
 
 echo
-echo "安装完成。请确保 8080 端口（或前置反代）开放，并通过 ${PUBLIC_URL} 访问。"
+echo "安装完成。请确保 ${PORT} 端口（或前置反代）开放，并通过 ${PUBLIC_URL} 访问。"
 echo "若需更新 IMONITOR_PUBLIC_URL：编辑 ${SERVICE_FILE} 然后 systemctl daemon-reload && systemctl restart imonitor-lite"
