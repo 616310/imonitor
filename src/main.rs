@@ -191,7 +191,6 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/install.sh", get(install_script))
-        .route("/agent.py", get(agent_script))
         .route("/agent.bin", get(agent_binary))
         .route("/ld-musl-x86_64.so.1", get(musl_loader))
         .route("/api/nodes", get(list_nodes_handler))
@@ -257,16 +256,6 @@ async fn install_script(State(state): State<AppState>) -> Result<impl IntoRespon
     content = content.replace("__DEFAULT_ENDPOINT__", &state.settings.public_url);
     let headers = [(header::CONTENT_TYPE, "text/x-shellscript")];
     Ok((headers, content))
-}
-
-async fn agent_script(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let path = state.scripts_dir.join("agent.py");
-    if !path.exists() {
-        return Err(AppError::NotFound);
-    }
-    let bytes = fs::read(path).await?;
-    let headers = [(header::CONTENT_TYPE, "text/x-python")];
-    Ok((headers, bytes))
 }
 
 async fn agent_binary(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
