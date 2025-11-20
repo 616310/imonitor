@@ -521,6 +521,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64",
  "libc",
  "rand 0.8.5",
  "reqwest",

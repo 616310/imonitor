@@ -7,11 +7,13 @@ use std::{
 
 use axum::{
     extract::{ConnectInfo, Path as AxumPath, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse},
     routing::{delete, get, post},
     Json, Router,
 };
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use rand::Rng;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -28,6 +30,8 @@ struct Settings {
     public_url: String,
     offline_timeout: u64,
     bind_addr: String,
+    admin_user: Option<String>,
+    admin_pass: Option<String>,
 }
 
 #[derive(Clone)]
@@ -133,6 +137,8 @@ enum AppError {
     Database(#[from] rusqlite::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("unauthorized")]
+    Unauthorized,
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
     #[error("bad request: {0}")]
@@ -143,11 +149,18 @@ impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let status = match self {
             AppError::NotFound => StatusCode::NOT_FOUND,
+            AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let body = Json(json!({"detail": self.to_string()}));
-        (status, body).into_response()
+        let mut response = (status, body).into_response();
+        if matches!(self, AppError::Unauthorized) {
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, header::HeaderValue::from_static("Basic realm=\"imonitor\""));
+        }
+        response
     }
 }
 
@@ -177,6 +190,8 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or(30),
         bind_addr: std::env::var("IMONITOR_BIND")
             .unwrap_or_else(|_| "[::]:8080".into()),
+        admin_user: std::env::var("IMONITOR_ADMIN_USER").ok(),
+        admin_pass: std::env::var("IMONITOR_ADMIN_PASS").ok(),
     };
 
     init_db(&data_dir.join("imonitor.db"))?;
@@ -195,6 +210,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/ld-musl-x86_64.so.1", get(musl_loader))
         .route("/api/nodes", get(list_nodes_handler))
         .route("/api/nodes/reserve", post(reserve_node))
+        .route("/api/login", post(login_handler))
         .route("/api/report", post(report_handler))
         .route("/api/nodes/:token", delete(delete_node_handler))
         .nest_service("/assets", ServeDir::new(state.public_dir.as_ref()))
@@ -297,8 +313,10 @@ async fn list_nodes_handler(
 
 async fn reserve_node(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<ReserveRequest>,
 ) -> Result<Json<ReserveResponse>, AppError> {
+    require_auth(&headers, &state.settings)?;
     let result = create_node(
         &state.data_dir.join("imonitor.db"),
         payload.label.as_deref(),
@@ -340,10 +358,20 @@ async fn report_handler(
 
 async fn delete_node_handler(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath(token): AxumPath<String>,
 ) -> Result<Json<Value>, AppError> {
+    require_auth(&headers, &state.settings)?;
     delete_node(&state.data_dir.join("imonitor.db"), &token)?;
     Ok(Json(json!({"status": "deleted"})))
+}
+
+async fn login_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    require_auth(&headers, &state.settings)?;
+    Ok(Json(json!({"status": "ok"})))
 }
 
 struct NewNode {
@@ -457,4 +485,34 @@ fn generate_token() -> String {
     (0..40)
         .map(|_| format!("{:x}", rng.gen_range(0..16)))
         .collect()
+}
+
+fn auth_enabled(settings: &Settings) -> bool {
+    settings.admin_user.is_some() && settings.admin_pass.is_some()
+}
+
+fn require_auth(headers: &HeaderMap, settings: &Settings) -> Result<(), AppError> {
+    if !auth_enabled(settings) {
+        return Ok(());
+    }
+    let auth = headers
+        .get(header::AUTHORIZATION)
+        .ok_or(AppError::Unauthorized)?
+        .to_str()
+        .map_err(|_| AppError::Unauthorized)?;
+    if !auth.starts_with("Basic ") {
+        return Err(AppError::Unauthorized);
+    }
+    let decoded = BASE64_STANDARD
+        .decode(auth.trim_start_matches("Basic ").trim())
+        .map_err(|_| AppError::Unauthorized)?;
+    let creds = String::from_utf8(decoded).map_err(|_| AppError::Unauthorized)?;
+    let (user, pass) = creds
+        .split_once(':')
+        .ok_or(AppError::Unauthorized)?;
+    if settings.admin_user.as_deref() == Some(user) && settings.admin_pass.as_deref() == Some(pass) {
+        Ok(())
+    } else {
+        Err(AppError::Unauthorized)
+    }
 }

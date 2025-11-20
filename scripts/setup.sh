@@ -11,6 +11,7 @@ fi
 default_dir="/opt/imonitor-lite"
 default_user="imonitor"
 default_port="8080"
+default_admin_user="admin"
 
 read -r -p "安装目录 [${default_dir}]: " INSTALL_DIR
 INSTALL_DIR=${INSTALL_DIR:-$default_dir}
@@ -20,6 +21,15 @@ RUN_USER=${RUN_USER:-$default_user}
 
 read -r -p "服务监听端口 [${default_port}]: " PORT
 PORT=${PORT:-$default_port}
+
+read -r -p "管理用户名 [${default_admin_user}]: " ADMIN_USER
+ADMIN_USER=${ADMIN_USER:-$default_admin_user}
+read -r -s -p "管理密码（留空自动生成随机密码）: " ADMIN_PASS
+echo
+if [[ -z "$ADMIN_PASS" ]]; then
+  ADMIN_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+  echo "生成的管理密码：$ADMIN_PASS"
+fi
 
 detect_public_addr() {
   # Prefer local global addresses to avoid NAT误判
@@ -83,6 +93,8 @@ Group=${RUN_USER}
 WorkingDirectory=${INSTALL_DIR}
 Environment=IMONITOR_PUBLIC_URL=${PUBLIC_URL}
 Environment=IMONITOR_BIND=${BIND_ADDR}
+Environment=IMONITOR_ADMIN_USER=${ADMIN_USER}
+Environment=IMONITOR_ADMIN_PASS=${ADMIN_PASS}
 ExecStart=${INSTALL_DIR}/bin/imonitor
 Restart=always
 RestartSec=5
@@ -102,4 +114,4 @@ systemctl --no-pager status imonitor-lite.service || true
 
 echo
 echo "安装完成。请确保 ${PORT} 端口（或前置反代）开放，并通过 ${PUBLIC_URL} 访问。"
-echo "若需更新 IMONITOR_PUBLIC_URL：编辑 ${SERVICE_FILE} 然后 systemctl daemon-reload && systemctl restart imonitor-lite"
+echo "若需更新 IMONITOR_PUBLIC_URL/管理员账号：编辑 ${SERVICE_FILE} 然后 systemctl daemon-reload && systemctl restart imonitor-lite"
