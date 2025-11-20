@@ -261,6 +261,9 @@
                     <div class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl backdrop-blur-[2px]">
                         <span class="text-white font-bold text-sm flex items-center gap-2"><i class="ph-bold ph-copy"></i> 点击复制命令</span>
                     </div>
+                    <div v-if="copyNotice" class="absolute -bottom-14 left-0 right-0 mx-auto w-max bg-white text-gray-800 text-xs font-semibold px-3 py-1 rounded-full shadow-lg">
+                        {{ copyNotice }}
+                    </div>
                 </div>
                 <button @click="closeAddModal" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3.5 rounded-xl transition">关闭</button>
             </div>
@@ -280,6 +283,8 @@ createApp({
         const pendingLabel = ref('');
         const lastUpdated = ref(null);
         const timerHandle = ref(null);
+        const copyNotice = ref('');
+        let copyNoticeTimer = null;
 
         const fetchNodes = async () => {
             try {
@@ -372,19 +377,24 @@ createApp({
                 document.execCommand('copy');
                 document.body.removeChild(ta);
             };
+            const showNotice = (msg) => {
+                copyNotice.value = msg;
+                if (copyNoticeTimer) clearTimeout(copyNoticeTimer);
+                copyNoticeTimer = setTimeout(() => (copyNotice.value = ''), 1800);
+            };
             try {
                 if (navigator.clipboard && window.isSecureContext) {
                     await navigator.clipboard.writeText(text);
                 } else {
                     fallbackCopy();
                 }
-                alert('命令已复制');
+                showNotice('已复制');
             } catch (err) {
                 try {
                     fallbackCopy();
-                    alert('命令已复制');
+                    showNotice('已复制');
                 } catch (_) {
-                    alert('复制失败，请手动复制');
+                    showNotice('复制失败，请手动复制');
                 }
             }
         };
@@ -441,7 +451,8 @@ createApp({
             formatUptime,
             formatTime,
             overallHealth,
-            overallHealthClass
+            overallHealthClass,
+            copyNotice
         };
     }
 }).mount('#app');

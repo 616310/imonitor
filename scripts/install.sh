@@ -107,5 +107,6 @@ EOF_SERVICE
 log "刷新 systemd"
 systemctl daemon-reload
 systemctl enable --now $SERVICE_NAME.service
+systemctl restart $SERVICE_NAME.service
 log "安装完成，服务状态："
 systemctl --no-pager status $SERVICE_NAME.service
