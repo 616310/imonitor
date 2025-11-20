@@ -22,16 +22,18 @@ read -r -p "服务监听端口 [${default_port}]: " PORT
 PORT=${PORT:-$default_port}
 
 detect_public_addr() {
+  # Prefer local global addresses to avoid NAT误判
+  addr=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  if [[ -n "$addr" ]]; then echo "$addr"; return; fi
+  addr=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  if [[ -n "$addr" ]]; then echo "$addr"; return; fi
+  # Fallback to external services
   for cmd in \
     "curl -4 -s https://ifconfig.co" \
-    "curl -4 -s https://api.ipify.org" \
-    "hostname -I | awk '{print \$1}'"
+    "curl -4 -s https://api.ipify.org"
   do
     addr=$(bash -lc "$cmd" 2>/dev/null | tr -d ' \n\r')
-    if [[ -n "$addr" ]]; then
-      echo "$addr"
-      return
-    fi
+    if [[ -n "$addr" ]]; then echo "$addr"; return; fi
   done
 }
 
