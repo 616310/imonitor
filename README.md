@@ -17,7 +17,7 @@ cd imonitor
 sudo bash scripts/setup.sh    # 按提示填写公开 URL，可保留默认
 ```
 脚本会复制当前目录到 `/opt/imonitor-lite`，创建 `imonitor-lite` systemd 服务并启动。默认监听 `0.0.0.0:8080`，如有反代请在提示里填写公网访问的 `IMONITOR_PUBLIC_URL`。
-环境变量：`IMONITOR_BIND`（默认 `[::]:8080` 可同时接收 IPv4/IPv6）、`IMONITOR_PUBLIC_URL`、`IMONITOR_OFFLINE_TIMEOUT`。
+环境变量：`IMONITOR_BIND`（默认 `[::]:8080` 可同时接收 IPv4/IPv6，端口需与公开 URL 一致）、`IMONITOR_PUBLIC_URL`（需带 http/https）、`IMONITOR_OFFLINE_TIMEOUT`。
 
 ## 本地部署
 ```bash

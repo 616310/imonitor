@@ -11,6 +11,7 @@ fi
 default_dir="/opt/imonitor-lite"
 default_user="imonitor"
 default_public_url="http://127.0.0.1:8080"
+default_bind="[::]:8080"
 
 read -r -p "安装目录 [${default_dir}]: " INSTALL_DIR
 INSTALL_DIR=${INSTALL_DIR:-$default_dir}
@@ -20,6 +21,12 @@ RUN_USER=${RUN_USER:-$default_user}
 
 read -r -p "公开访问地址 (IMONITOR_PUBLIC_URL) [${default_public_url}]: " PUBLIC_URL
 PUBLIC_URL=${PUBLIC_URL:-$default_public_url}
+read -r -p "监听地址 (IMONITOR_BIND) [${default_bind}]: " BIND_ADDR
+BIND_ADDR=${BIND_ADDR:-$default_bind}
+
+if [[ ! "${PUBLIC_URL}" =~ ^https?:// ]]; then
+  PUBLIC_URL="http://${PUBLIC_URL}"
+fi
 
 echo "[1/5] 创建系统用户 ${RUN_USER}"
 if ! id -u "$RUN_USER" >/dev/null 2>&1; then
@@ -46,6 +53,7 @@ User=${RUN_USER}
 Group=${RUN_USER}
 WorkingDirectory=${INSTALL_DIR}
 Environment=IMONITOR_PUBLIC_URL=${PUBLIC_URL}
+Environment=IMONITOR_BIND=${BIND_ADDR}
 ExecStart=${INSTALL_DIR}/bin/imonitor
 Restart=always
 RestartSec=5
