@@ -53,13 +53,23 @@ fi
 
 log "安装目录：$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
+if ! touch "$INSTALL_DIR/.write_test" 2>/dev/null; then
+  echo "安装目录不可写：$INSTALL_DIR" >&2
+  exit 1
+fi
+rm -f "$INSTALL_DIR/.write_test"
+
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
 
 log "下载 Agent 二进制"
-curl -fsSL "$ENDPOINT/agent.bin" -o "$AGENT_BIN"
-chmod +x "$AGENT_BIN"
+TMP_AGENT="$TMPDIR/agent.bin"
+curl -fSL --retry 3 --retry-delay 1 "$ENDPOINT/agent.bin" -o "$TMP_AGENT"
+install -m 0755 "$TMP_AGENT" "$AGENT_BIN"
 log "下载运行时 (musl loader)"
-curl -fsSL "$ENDPOINT/ld-musl-x86_64.so.1" -o "$LOADER"
-chmod +x "$LOADER"
+TMP_LOADER="$TMPDIR/ld-musl-x86_64.so.1"
+curl -fSL --retry 3 --retry-delay 1 "$ENDPOINT/ld-musl-x86_64.so.1" -o "$TMP_LOADER"
+install -m 0755 "$TMP_LOADER" "$LOADER"
 if [ ! -f /lib/ld-musl-x86_64.so.1 ]; then
   log "复制 musl loader 到 /lib"
   cp "$LOADER" /lib/ld-musl-x86_64.so.1

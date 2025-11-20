@@ -287,7 +287,9 @@ createApp({
                 if (!res.ok) throw new Error('加载失败');
                 const data = await res.json();
                 lastUpdated.value = data.generated_at;
-                servers.value = (data.nodes || []).map(transformNode);
+                const nodes = (data.nodes || []).map(transformNode);
+                // 仅展示已上报过的节点，过滤掉“待接入”占位
+                servers.value = nodes.filter(node => node.status !== 'pending');
             } catch (err) {
                 console.error(err);
             }
@@ -357,10 +359,34 @@ createApp({
             }
         };
 
-        const copyCommand = () => {
+        const copyCommand = async () => {
             if (!installCommand.value) return;
-            navigator.clipboard.writeText(installCommand.value);
-            alert('命令已复制');
+            const text = installCommand.value;
+            const fallbackCopy = () => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+            };
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    fallbackCopy();
+                }
+                alert('命令已复制');
+            } catch (err) {
+                try {
+                    fallbackCopy();
+                    alert('命令已复制');
+                } catch (_) {
+                    alert('复制失败，请手动复制');
+                }
+            }
         };
 
         const formatUptime = (sec) => {
