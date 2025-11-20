@@ -15,6 +15,7 @@ cd imonitor
 sudo bash scripts/setup.sh    # answer prompts; default public URL is fine for local
 ```
 The script copies files to `/opt/imonitor-lite`, writes `imonitor-lite` systemd service, and starts it. It listens on `0.0.0.0:8080`; set `IMONITOR_PUBLIC_URL` when prompted if you front it with a reverse proxy/HTTPS domain.
+Environment vars: `IMONITOR_BIND` (default `[::]:8080` to serve IPv4+IPv6), `IMONITOR_PUBLIC_URL`, `IMONITOR_OFFLINE_TIMEOUT`.
 
 ## Quick Start
 ```bash

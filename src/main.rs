@@ -27,6 +27,7 @@ use uuid::Uuid;
 struct Settings {
     public_url: String,
     offline_timeout: u64,
+    bind_addr: String,
 }
 
 #[derive(Clone)]
@@ -174,6 +175,8 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(30),
+        bind_addr: std::env::var("IMONITOR_BIND")
+            .unwrap_or_else(|_| "[::]:8080".into()),
     };
 
     init_db(&data_dir.join("imonitor.db"))?;
@@ -198,7 +201,11 @@ async fn main() -> anyhow::Result<()> {
         .nest_service("/assets", ServeDir::new(state.public_dir.as_ref()))
         .with_state(state.clone());
 
-    let addr: SocketAddr = "0.0.0.0:8080".parse().unwrap();
+    let addr: SocketAddr = state
+        .settings
+        .bind_addr
+        .parse()
+        .unwrap_or_else(|_| "[::]:8080".parse().unwrap());
     info!("listening on {}", addr);
     let listener = TcpListener::bind(addr).await?;
     axum::serve(
