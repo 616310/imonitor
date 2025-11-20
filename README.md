@@ -10,6 +10,14 @@ iMonitor 是一套开箱即用的服务器资源监控平台，包含 FastAPI �
 - **Agent (`scripts/agent`)**：静态编译的 Rust 可执行文件，直接读取 `/proc` 与文件系统获取指标，无需 Python/依赖，默认每 5 秒上报。
 - **一键安装脚本 (`scripts/install.sh`)**：下载 Agent 与 musl loader（如目标机缺失），写入 `systemd` 服务 `imonitor-agent.service`，在低配/旧系统上也可部署。
 
+## 快速部署主控（无编译）
+```bash
+git clone https://github.com/616310/imonitor.git
+cd imonitor
+sudo bash scripts/setup.sh    # 按提示填写公开 URL，可保留默认
+```
+脚本会复制当前目录到 `/opt/imonitor-lite`，创建 `imonitor-lite` systemd 服务并启动。默认监听 `0.0.0.0:8080`，如有反代请在提示里填写公网访问的 `IMONITOR_PUBLIC_URL`。
+
 ## 本地部署
 ```bash
 cargo build --release

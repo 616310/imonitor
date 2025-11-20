@@ -8,6 +8,14 @@ Production-ready server resource monitor featuring a FastAPI backend, polished V
 - **Agent** (`scripts/agent`) – Static Rust binary reading `/proc` and filesystem; no Python/runtime required, defaults to 5s interval.
 - **Installer** (`scripts/install.sh`) – One-command bootstrap downloading the agent (and musl loader if needed), writing env vars, and provisioning a `systemd` service.
 
+## Quick server setup (no build)
+```bash
+git clone https://github.com/616310/imonitor.git
+cd imonitor
+sudo bash scripts/setup.sh    # answer prompts; default public URL is fine for local
+```
+The script copies files to `/opt/imonitor-lite`, writes `imonitor-lite` systemd service, and starts it. It listens on `0.0.0.0:8080`; set `IMONITOR_PUBLIC_URL` when prompted if you front it with a reverse proxy/HTTPS domain.
+
 ## Quick Start
 ```bash
 cargo build --release
