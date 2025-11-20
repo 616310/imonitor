@@ -28,6 +28,21 @@ if [[ ! "${PUBLIC_URL}" =~ ^https?:// ]]; then
   PUBLIC_URL="http://${PUBLIC_URL}"
 fi
 
+normalize_bind() {
+  local raw="$1"
+  raw="${raw#http://}"
+  raw="${raw#https://}"
+  raw="${raw%%/*}"
+  if [[ "$raw" != *:* ]]; then
+    raw="${raw}:8080"
+  fi
+  if [[ "$raw" == *:*:* && "$raw" != \[* ]]; then
+    raw="[$raw]"
+  fi
+  echo "$raw"
+}
+BIND_ADDR="$(normalize_bind "$BIND_ADDR")"
+
 echo "[1/5] 创建系统用户 ${RUN_USER}"
 if ! id -u "$RUN_USER" >/dev/null 2>&1; then
   useradd --system --create-home --shell /usr/sbin/nologin "$RUN_USER"
