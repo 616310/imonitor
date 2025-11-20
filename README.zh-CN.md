@@ -21,14 +21,14 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080
 1. 在控制台点击“节点接入”，生成包含 `token` 的命令。
 2. 将命令复制到目标服务器（需要 root 权限）执行，例如：
    ```bash
-   curl -fsSL https://bbb.bjut.me/install.sh | bash -s -- --token=xxxx --endpoint=https://bbb.bjut.me
+   curl -fsSL https://monitor.example.com/install.sh | bash -s -- --token=xxxx --endpoint=https://monitor.example.com
    ```
 3. 安装完成后 `imonitor-agent.service` 会常驻运行，数秒后即可在面板看到实时指标。
 
 ## systemd & Nginx 示例
 - `imonitor.service`：托管 FastAPI，监听 `0.0.0.0:8080`。
 - `imonitor-agent.service`：每个节点本地的指标采集服务。
-- `bbb.bjut.me` Nginx 配置：80 强制跳转 HTTPS，443 反代到本地 8080，使用 Let’s Encrypt 证书。
+- `monitor.example.com` Nginx 配置：80 强制跳转 HTTPS，443 反代到本地 8080，使用 Let’s Encrypt 证书。
 
 ## 实用命令
 ```bash
@@ -39,7 +39,7 @@ journalctl -u imonitor -f
 journalctl -u imonitor-agent -f
 
 # 清理/重置节点
-curl -X DELETE https://bbb.bjut.me/api/nodes/<token>
+curl -X DELETE https://monitor.example.com/api/nodes/<token>
 ```
 
 欢迎根据实际需求扩展数据库、权限控制或图表展示。
