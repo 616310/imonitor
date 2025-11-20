@@ -5,10 +5,12 @@ DEFAULT_ENDPOINT="__DEFAULT_ENDPOINT__"
 SERVICE_NAME="imonitor-agent"
 INSTALL_DIR="/opt/imonitor-agent"
 ENV_FILE="$INSTALL_DIR/agent.env"
-VENV_DIR="$INSTALL_DIR/venv"
 TOKEN=""
 ENDPOINT=""
 INTERVAL="5"
+FLAG="🖥️"
+AGENT_BIN="$INSTALL_DIR/agent"
+LOADER="$INSTALL_DIR/ld-musl-x86_64.so.1"
 
 function log() {
   echo -e "[install] $1"
@@ -16,7 +18,7 @@ function log() {
 
 function usage() {
   cat <<USAGE
-用法: bash install.sh --token=TOKEN [--endpoint=https://host] [--interval=秒]
+用法: bash install.sh --token=TOKEN [--endpoint=https://host] [--interval=秒] [--flag=Emoji]
 USAGE
 }
 
@@ -28,6 +30,8 @@ while [[ $# -gt 0 ]]; do
     --endpoint) shift; ENDPOINT="$1" ;;
     --interval=*) INTERVAL="${1#*=}" ;;
     --interval) shift; INTERVAL="$1" ;;
+    --flag=*) FLAG="${1#*=}" ;;
+    --flag) shift; FLAG="$1" ;;
     -h|--help) usage; exit 0 ;;
   esac
   shift || true
@@ -47,32 +51,29 @@ if [[ "$EUID" -ne 0 ]]; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "需要 python3 环境" >&2
-  exit 1
-fi
-
 log "安装目录：$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
-if [ ! -d "$VENV_DIR" ]; then
-  log "创建虚拟环境"
-  python3 -m venv "$VENV_DIR"
+log "下载 Agent 二进制"
+curl -fsSL "$ENDPOINT/agent.bin" -o "$AGENT_BIN"
+chmod +x "$AGENT_BIN"
+log "下载运行时 (musl loader)"
+curl -fsSL "$ENDPOINT/ld-musl-x86_64.so.1" -o "$LOADER"
+chmod +x "$LOADER"
+if [ ! -f /lib/ld-musl-x86_64.so.1 ]; then
+  log "复制 musl loader 到 /lib"
+  cp "$LOADER" /lib/ld-musl-x86_64.so.1
 fi
-
-log "安装依赖"
-"$VENV_DIR/bin/pip" install --upgrade pip >/dev/null
-"$VENV_DIR/bin/pip" install --upgrade psutil requests >/dev/null
-
-log "下载 Agent"
-curl -fsSL "$ENDPOINT/agent.py" -o "$INSTALL_DIR/agent.py"
-chmod +x "$INSTALL_DIR/agent.py"
+rm -rf "$INSTALL_DIR/venv" "$INSTALL_DIR/agent.py"
 
 cat > "$ENV_FILE" <<EOF_ENV
 IMONITOR_TOKEN=$TOKEN
 IMONITOR_ENDPOINT=$ENDPOINT
 IMONITOR_INTERVAL=$INTERVAL
+IMONITOR_FLAG=$FLAG
 EOF_ENV
+
+AGENT_CMD="$AGENT_BIN --token=\$IMONITOR_TOKEN --endpoint=\$IMONITOR_ENDPOINT --interval=\$IMONITOR_INTERVAL --flag=\$IMONITOR_FLAG"
 
 cat > /etc/systemd/system/$SERVICE_NAME.service <<EOF_SERVICE
 [Unit]
@@ -83,7 +84,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=$ENV_FILE
-ExecStart=$VENV_DIR/bin/python $INSTALL_DIR/agent.py
+ExecStart=/bin/sh -c "$AGENT_CMD"
 Restart=always
 RestartSec=5
 StandardOutput=journal

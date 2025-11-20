@@ -189,6 +189,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(index_handler))
         .route("/install.sh", get(install_script))
         .route("/agent.py", get(agent_script))
+        .route("/agent.bin", get(agent_binary))
+        .route("/ld-musl-x86_64.so.1", get(musl_loader))
         .route("/api/nodes", get(list_nodes_handler))
         .route("/api/nodes/reserve", post(reserve_node))
         .route("/api/report", post(report_handler))
@@ -257,6 +259,26 @@ async fn agent_script(State(state): State<AppState>) -> Result<impl IntoResponse
     }
     let bytes = fs::read(path).await?;
     let headers = [(header::CONTENT_TYPE, "text/x-python")];
+    Ok((headers, bytes))
+}
+
+async fn agent_binary(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let path = state.scripts_dir.join("agent");
+    if !path.exists() {
+        return Err(AppError::NotFound);
+    }
+    let bytes = fs::read(path).await?;
+    let headers = [(header::CONTENT_TYPE, "application/octet-stream")];
+    Ok((headers, bytes))
+}
+
+async fn musl_loader(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let path = state.scripts_dir.join("ld-musl-x86_64.so.1");
+    if !path.exists() {
+        return Err(AppError::NotFound);
+    }
+    let bytes = fs::read(path).await?;
+    let headers = [(header::CONTENT_TYPE, "application/octet-stream")];
     Ok((headers, bytes))
 }
 
