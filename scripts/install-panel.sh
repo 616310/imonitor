@@ -13,6 +13,10 @@ TMP_CLONE=""
 
 prompt_default() {
   local msg="$1" default="$2" var=""
+  if [[ -n "${IMONITOR_AUTO:-}" || ! -t 0 ]]; then
+    echo "$default"
+    return
+  fi
   if read -r -p "$msg [$default]: " var < /dev/tty 2>/dev/null; then
     echo "${var:-$default}"
   else
@@ -22,6 +26,10 @@ prompt_default() {
 
 prompt_secret() {
   local msg="$1" default="$2" var=""
+  if [[ -n "${IMONITOR_AUTO:-}" || ! -t 0 ]]; then
+    echo "$default"
+    return
+  fi
   if read -r -s -p "$msg (留空随机): " var < /dev/tty 2>/dev/null; then
     echo
     echo "${var:-$default}"
