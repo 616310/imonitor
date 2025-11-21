@@ -66,10 +66,6 @@
             </div>
         </div>
         <div class="flex items-center gap-3">
-            <button @click="fetchNodes" class="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold flex items-center gap-2 transition">
-                <i class="ph-bold ph-arrow-clockwise"></i>
-                手动刷新
-            </button>
             <button v-if="!isAuthed" @click="openLoginModal" class="bg-gray-900 text-white px-4 py-2.5 rounded-full font-bold text-sm transition-all shadow-md border border-gray-800 flex items-center gap-2 active:scale-95">
                 <i class="ph-bold ph-lock"></i>
                 <span>登录</span>
@@ -343,6 +339,12 @@
                 </div>
                 <div class="space-y-3 mb-4">
                     <input type="text" v-model="bgInput" placeholder="https://..." class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring focus:ring-blue-200" />
+                    <div class="flex items-center gap-3">
+                        <input ref="bgFile" type="file" accept="image/*" class="w-full text-sm text-gray-600" />
+                        <button @click="uploadBackground" class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition flex items-center gap-1">
+                            <i class="ph-bold ph-upload-simple"></i> 上传并应用
+                        </button>
+                    </div>
                     <div v-if="bgNotice" class="text-sm text-green-600">{{ bgNotice }}</div>
                     <button @click="saveBackground" class="w-full bg-gray-900 text-white rounded-xl py-3 font-semibold hover:bg-gray-800 transition flex items-center justify-center gap-2">
                         <i class="ph-bold ph-check"></i> 保存背景
@@ -356,6 +358,7 @@
 
 <script>
 const { createApp, ref, onMounted, computed } = Vue;
+const DEFAULT_BG = 'https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop';
 
 createApp({
     setup() {
@@ -381,6 +384,7 @@ createApp({
         const showBgModal = ref(false);
         const bgInput = ref('');
         const bgNotice = ref('');
+        const bgFile = ref(null);
 
         const fetchNodes = async () => {
             try {
@@ -405,7 +409,7 @@ createApp({
                 if (data.background_url) {
                     backgroundUrl.value = data.background_url;
                     document.body.style.setProperty('--bg-url', `url('${backgroundUrl.value}')`);
-                    bgInput.value = backgroundUrl.value;
+                    bgInput.value = backgroundUrl.value === DEFAULT_BG ? '' : backgroundUrl.value;
                 }
             } catch (err) {
                 console.error(err);
@@ -489,6 +493,12 @@ createApp({
             bgNotice.value = '';
             showBgModal.value = true;
             bgInput.value = backgroundUrl.value;
+            if (bgInput.value === DEFAULT_BG) {
+                bgInput.value = '';
+            }
+            if (bgFile.value) {
+                bgFile.value.value = '';
+            }
         };
 
         const closeBgModal = () => {
@@ -516,6 +526,37 @@ createApp({
                 setTimeout(() => (bgNotice.value = ''), 1500);
             } catch (err) {
                 bgNotice.value = err.message || '保存失败';
+            }
+        };
+
+        const uploadBackground = async () => {
+            if (!isAuthed.value) {
+                openLoginModal();
+                return;
+            }
+            const file = bgFile.value?.files?.[0];
+            if (!file) {
+                bgNotice.value = '请选择图片文件';
+                return;
+            }
+            const form = new FormData();
+            form.append('file', file);
+            try {
+                const res = await fetch('/api/settings/background/upload', {
+                    method: 'POST',
+                    headers: {
+                        ...(authHeader.value ? { Authorization: authHeader.value } : {})
+                    },
+                    body: form
+                });
+                if (!res.ok) throw new Error('上传失败');
+                const data = await res.json();
+                backgroundUrl.value = data.background_url;
+                document.body.style.setProperty('--bg-url', `url('${backgroundUrl.value}')`);
+                bgNotice.value = '背景已更新';
+                setTimeout(() => (bgNotice.value = ''), 1500);
+            } catch (err) {
+                bgNotice.value = err.message || '上传失败';
             }
         };
 
@@ -756,10 +797,12 @@ createApp({
             backgroundUrl,
             showBgModal,
             bgInput,
+            bgFile,
             bgNotice,
             openBgModal,
             closeBgModal,
             saveBackground,
+            uploadBackground,
             deleteNode,
             showLoginModal,
             loginUsername,
