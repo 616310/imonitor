@@ -12,14 +12,11 @@ iMonitor 是一套开箱即用的服务器资源监控平台，后端 Rust（Axu
 - **交互式 CLI (`i-mo`)**：仅用于已安装后的运维（查看状态/日志、启停、修改配置、卸载等），不再承担安装主控。
 
 ## 快速开始
-### 1）安装面板（独立脚本）
+### 1）安装面板（单脚本一键）
 ```bash
-git clone https://github.com/616310/imonitor.git
-cd imonitor
-# 如需自行构建可执行文件：cargo build --release
-sudo bash scripts/install-panel.sh   # 按提示选择目录/端口/公共地址/管理员账号
+curl -fsSL https://raw.githubusercontent.com/616310/imonitor/main/scripts/install-panel.sh | sudo bash
 ```
-默认安装到 `/opt/imonitor-lite`，systemd 服务名 `imonitor-lite`，脚本结束会打印访问地址和管理员凭据。
+脚本会自动 git clone（或使用当前目录），默认安装到 `/opt/imonitor-lite`，systemd 服务名 `imonitor-lite`，结束打印访问地址和管理员凭据。
 
 ### 2）接入新节点
 1. 打开控制台点击“节点接入”，复制生成的命令。

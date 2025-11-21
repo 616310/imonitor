@@ -10,13 +10,11 @@ Production-ready server resource monitor with an Axum (Rust) backend, Vue/Tailwi
 - **Agent installer** (`scripts/install.sh`) – Downloads the agent and musl loader (if missing), writes `imonitor-agent` systemd on the target node.
 - **CLI (`i-mo`)** – Operations only (status/logs/start/stop/restart/config view/uninstall); installation is handled by the scripts above.
 
-## Quick server setup (no build)
+## Quick server setup (single script)
 ```bash
-git clone https://github.com/616310/imonitor.git
-cd imonitor
-sudo bash scripts/install-panel.sh    # answer prompts for path/port/public URL/admin
+curl -fsSL https://raw.githubusercontent.com/616310/imonitor/main/scripts/install-panel.sh | sudo bash
 ```
-The script copies the build to `/opt/imonitor-lite`, creates the `imonitor-lite` systemd service, starts it, and prints the access URL/admin credentials. The service listens on `[::]:8080` by default; align `IMONITOR_PUBLIC_URL` with your reverse proxy/HTTPS domain when prompted.
+The script auto-clones the repo, copies the build to `/opt/imonitor-lite`, creates the `imonitor-lite` systemd service, starts it, and prints the access URL/admin credentials. The service listens on `[::]:8080` by default; align `IMONITOR_PUBLIC_URL` with your reverse proxy/HTTPS domain when prompted.
 Key env vars: `IMONITOR_BIND` (default `[::]:8080`), `IMONITOR_PUBLIC_URL` (with http/https), `IMONITOR_OFFLINE_TIMEOUT` (default 30s).
 
 ## Quick Start

@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 独立的主控面板安装脚本（不依赖 i-mo）。
+# 独立的主控面板安装脚本（可直接 curl | bash，一键自拉代码）。
 
 if [[ "$EUID" -ne 0 ]]; then
-  echo "请使用 root 权限运行此脚本 (sudo bash scripts/install-panel.sh)" >&2
+  echo "请使用 root 权限运行此脚本 (sudo bash install-panel.sh)" >&2
   exit 1
 fi
+
+REPO_URL="https://github.com/616310/imonitor.git"
+TMP_CLONE=""
 
 detect_public_addr() {
   local addr
@@ -28,7 +31,25 @@ normalize_host() {
   echo "$host"
 }
 
-SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 定位源码目录：优先使用当前目录的上级（已在仓库内运行），否则自动 git clone
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || true)"
+if [[ ! -x "$SOURCE_DIR/bin/imonitor" ]]; then
+  if ! command -v git >/dev/null 2>&1; then
+    echo "缺少 git，请先安装 git 再运行此脚本" >&2
+    exit 1
+  fi
+  TMP_CLONE="$(mktemp -d)"
+  trap '[[ -n "$TMP_CLONE" ]] && rm -rf "$TMP_CLONE"' EXIT
+  echo "[clone] 拉取仓库：$REPO_URL"
+  git clone --depth 1 "$REPO_URL" "$TMP_CLONE/imonitor"
+  SOURCE_DIR="$TMP_CLONE/imonitor"
+  if [[ ! -x "$SOURCE_DIR/bin/imonitor" ]]; then
+    echo "未找到可执行文件 $SOURCE_DIR/bin/imonitor ，请先在源码根目录构建：cargo build --release" >&2
+    exit 1
+  fi
+fi
+
 INSTALL_DIR="/opt/imonitor-lite"
 RUN_USER="imonitor"
 PORT="8080"
@@ -49,11 +70,6 @@ fi
 
 PUBLIC_URL="http://${HOST_NORMALIZED}:${PORT}"
 BIND_ADDR="[::]:${PORT}"
-
-if [[ ! -x "$SOURCE_DIR/bin/imonitor" ]]; then
-  echo "未找到可执行文件 $SOURCE_DIR/bin/imonitor ，请先在源码根目录构建：cargo build --release" >&2
-  exit 1
-fi
 
 echo "[1/4] 创建系统用户 ${RUN_USER}"
 if ! id -u "$RUN_USER" >/dev/null 2>&1; then
