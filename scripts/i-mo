@@ -19,6 +19,22 @@ has_service() {
   systemctl list-unit-files | grep -q "^${1}.service"
 }
 
+detect_public_addr() {
+  addr=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  if [[ -n "$addr" ]]; then echo "http://[$addr]:8080"; return; fi
+  addr=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  if [[ -n "$addr" ]]; then echo "http://$addr:8080"; return; fi
+  echo "http://127.0.0.1:8080"
+}
+
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "缺少依赖：$cmd，请先安装。" >&2
+    exit 1
+  fi
+}
+
 prompt() {
   local msg="$1" default="$2" var
   read -r -p "$msg [$default]: " var
@@ -130,7 +146,8 @@ install_panel() {
   local install_dir="$CTRL_DIR"
   local run_user="imonitor"
   local port="8080"
-  local public_host="http://127.0.0.1:8080"
+  local public_host
+  public_host=$(detect_public_addr)
   read -r -p "安装目录 [${install_dir}]: " input; install_dir=${input:-$install_dir}
   read -r -p "运行用户 [${run_user}]: " input; run_user=${input:-$run_user}
   read -r -p "服务端口 [${port}]: " input; port=${input:-$port}
@@ -139,10 +156,11 @@ install_panel() {
   read -r -s -p "管理员密码（留空随机）: " admin_pass; echo
   if [[ -z "$admin_pass" ]]; then admin_pass=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16); echo "生成密码：$admin_pass"; fi
 
+  require_cmd git
   tmpdir=$(mktemp -d)
   git clone "$REPO_URL" "$tmpdir"
   mkdir -p "$install_dir"
-  tar cf - -C "$tmpdir" . --exclude='.git' --exclude='target' | tar xf - -C "$install_dir"
+  tar cf - --exclude='.git' --exclude='target' -C "$tmpdir" . | tar xf - -C "$install_dir"
   useradd --system --create-home --shell /usr/sbin/nologin "$run_user" 2>/dev/null || true
   chown -R "$run_user":"$run_user" "$install_dir"
   install -m 0755 "$install_dir/scripts/i-mo" /usr/local/bin/i-mo
