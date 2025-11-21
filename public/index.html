@@ -442,10 +442,11 @@ createApp({
             const hyperVendor = (meta.hypervisor_vendor || '').toString();
             const isHyper = !!meta.hypervisor || modelLower.includes('虚拟') || modelLower.includes('virtual') || !!hyperVendor;
             const cpuDisplay = (() => {
-                const raw = (meta.cpu_model || '').toString();
-                // 去掉括号中的虚拟化标记
-                const clean = raw.replace(/\s*\(.*?(kvm|vm).*?\)/i, '').trim();
-                return clean || raw || '未知 CPU';
+                const raw = (meta.cpu_model || meta.cpu_brand || meta.cpu || '').toString().trim();
+                if (!raw) return '未知 CPU';
+                // 去掉末尾的虚拟化标记，但保留完整型号
+                const clean = raw.replace(/\s*\((?:kvm|vmware|qemu|virtualbox|hyper-?v|vm)\)\s*$/i, '').trim();
+                return clean || raw;
             })();
             return {
                 id: node.id,
