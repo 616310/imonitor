@@ -6,7 +6,7 @@ use std::{
 };
 
 use axum::{
-    extract::{ConnectInfo, Path as AxumPath, State},
+    extract::{ConnectInfo, Multipart, Path as AxumPath, State},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse},
     routing::{delete, get, post},
@@ -158,13 +158,7 @@ impl IntoResponse for AppError {
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let body = Json(json!({"detail": self.to_string()}));
-        let mut response = (status, body).into_response();
-        if matches!(self, AppError::Unauthorized) {
-            response
-                .headers_mut()
-                .insert(header::WWW_AUTHENTICATE, header::HeaderValue::from_static("Basic realm=\"imonitor\""));
-        }
-        response
+        (status, body).into_response()
     }
 }
 
@@ -198,7 +192,7 @@ async fn main() -> anyhow::Result<()> {
         admin_pass: std::env::var("IMONITOR_ADMIN_PASS").ok(),
     };
 
-    let app_settings = Arc::new(load_app_settings(&data_dir.join("settings.json")).await?);
+    let app_settings = Arc::new(load_app_settings(&data_dir.join("settings.json"), &data_dir).await?);
 
     init_db(&data_dir.join("imonitor.db"))?;
 
@@ -222,6 +216,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/nodes/:token", delete(delete_node_handler).patch(update_node_handler))
         .route("/api/settings", get(get_settings_handler))
         .route("/api/settings/background", post(update_background_handler))
+        .route("/api/settings/background/upload", post(update_background_upload_handler))
+        .route("/api/settings/background/file", get(get_background_file_handler))
         .nest_service("/assets", ServeDir::new(state.public_dir.as_ref()))
         .with_state(state.clone());
 
@@ -573,10 +569,11 @@ struct PersistedSettings {
 
 struct AppSettings {
     path: PathBuf,
+    bg_file: PathBuf,
     background_url: RwLock<String>,
 }
 
-async fn load_app_settings(path: &Path) -> Result<AppSettings, AppError> {
+async fn load_app_settings(path: &Path, data_dir: &Path) -> Result<AppSettings, AppError> {
     let default_bg = "https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop".to_string();
     let data = if path.exists() {
         fs::read(path).await?
@@ -592,6 +589,7 @@ async fn load_app_settings(path: &Path) -> Result<AppSettings, AppError> {
     };
     Ok(AppSettings {
         path: path.to_path_buf(),
+        bg_file: data_dir.join("background_upload.bin"),
         background_url: RwLock::new(
             persisted
                 .background_url
@@ -632,4 +630,43 @@ async fn update_background_handler(
     }
     save_app_settings(&state.app_settings).await?;
     Ok(Json(json!({"status": "updated"})))
+}
+
+async fn update_background_upload_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, AppError> {
+    require_auth(&headers, &state.settings)?;
+    let mut saved = false;
+    while let Some(field) = multipart.next_field().await.map_err(|_| AppError::BadRequest("invalid multipart".into()))? {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "file" {
+            continue;
+        }
+        let data = field.bytes().await.map_err(|_| AppError::BadRequest("invalid file".into()))?;
+        fs::write(&state.app_settings.bg_file, &data).await?;
+        {
+            let mut bg = state.app_settings.background_url.write().await;
+            *bg = "/api/settings/background/file".to_string();
+        }
+        save_app_settings(&state.app_settings).await?;
+        saved = true;
+        break;
+    }
+    if !saved {
+        return Err(AppError::BadRequest("file is required".into()));
+    }
+    Ok(Json(json!({"status": "updated", "background_url": "/api/settings/background/file"})))
+}
+
+async fn get_background_file_handler(State(state): State<AppState>) -> Result<(HeaderMap, Vec<u8>), AppError> {
+    if !state.app_settings.bg_file.exists() {
+        return Err(AppError::NotFound);
+    }
+    let data = fs::read(&state.app_settings.bg_file).await?;
+    let mime = mime_guess::from_path(&state.app_settings.bg_file).first_or_octet_stream();
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, header::HeaderValue::from_str(mime.as_ref()).unwrap_or(header::HeaderValue::from_static("application/octet-stream")));
+    Ok((headers, data))
 }
