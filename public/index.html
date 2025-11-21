@@ -200,7 +200,7 @@
                         <div class="flex items-center justify-between">
                             <div>
                                 <div class="text-lg font-bold text-gray-800">{{ activeServer.data.cpu_model }}</div>
-                                <div class="text-sm text-gray-500 mt-1">{{ activeServer.data.cpu_cores }} {{ activeServer.data.core_label }} · Load {{ activeServer.data.load_avg.join(' / ') }}</div>
+                                <div class="text-sm text-gray-500 mt-1">{{ activeServer.data.cpu_cores }} {{ activeServer.data.core_label }}</div>
                             </div>
                             <div class="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl text-gray-800 shadow-sm">
                                 <i class="ph-duotone ph-microchip"></i>
@@ -441,6 +441,12 @@ createApp({
             const modelLower = (meta.cpu_model || '').toString().toLowerCase();
             const hyperVendor = (meta.hypervisor_vendor || '').toString();
             const isHyper = !!meta.hypervisor || modelLower.includes('虚拟') || modelLower.includes('virtual') || !!hyperVendor;
+            const cpuDisplay = (() => {
+                const raw = (meta.cpu_model || '').toString();
+                // 去掉括号中的虚拟化标记
+                const clean = raw.replace(/\s*\(.*?(kvm|vm).*?\)/i, '').trim();
+                return clean || raw || '未知 CPU';
+            })();
             return {
                 id: node.id,
                 label: node.label || '',
@@ -457,9 +463,9 @@ createApp({
                     os_simple: meta.os_short || meta.os || '未知系统',
                     os_full: meta.os_full || meta.os || '未知系统',
                     arch: meta.arch || 'N/A',
-                    cpu_model: meta.cpu_model || '未知 CPU',
+                    cpu_model: cpuDisplay,
                     cpu_cores: meta.cpu_cores || '-',
-                    core_label: isHyper ? 'vCPU' : '物理核心',
+                    core_label: isHyper ? 'Virtual Core' : '物理核心',
                     cpu: safe(metrics.cpu, 0),
                     memory_percent: safe(metrics.memory_percent, 0),
                     disk_percent: safe(metrics.disk_percent, 0),
