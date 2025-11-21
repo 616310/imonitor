@@ -439,6 +439,10 @@ fn read_cpu_info() -> CpuInfo {
         if cores == 0 {
             cores = 1;
         }
+        // 部分平台没有 Hypervisor vendor 行，尝试根据标志补全
+        if hypervisor && hyper_vendor.is_empty() {
+            hyper_vendor = "KVM/VM".to_string();
+        }
         if hypervisor {
             let mut label = "虚拟 CPU".to_string();
             if !hyper_vendor.is_empty() {

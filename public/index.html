@@ -419,11 +419,16 @@ createApp({
 
         const refreshActiveServer = () => {
             if (!activeServer.value) return;
-            if (editingLabel.value) return; // 避免编辑时被轮询重置输入
             const found = servers.value.find(s => s.token === activeServer.value.token);
             if (found) {
+                const editing = editingLabel.value;
+                const draft = labelDraft.value;
                 activeServer.value = found;
-                labelDraft.value = found.label || '';
+                if (!editing) {
+                    labelDraft.value = found.label || '';
+                } else {
+                    labelDraft.value = draft;
+                }
             }
         };
 
@@ -433,7 +438,9 @@ createApp({
             const flag = meta.flag || '🖥️';
             const status = node.status || 'pending';
             const safe = (val, fallback = 0) => typeof val === 'number' ? val : fallback;
-            const isHyper = !!meta.hypervisor;
+            const modelLower = (meta.cpu_model || '').toString().toLowerCase();
+            const hyperVendor = (meta.hypervisor_vendor || '').toString();
+            const isHyper = !!meta.hypervisor || modelLower.includes('虚拟') || modelLower.includes('virtual') || !!hyperVendor;
             return {
                 id: node.id,
                 label: node.label || '',
