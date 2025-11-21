@@ -19,31 +19,6 @@ has_service() {
   systemctl list-unit-files | grep -q "^${1}.service"
 }
 
-detect_public_addr() {
-  addr=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-  if [[ -n "$addr" ]]; then echo "[$addr]"; return; fi
-  addr=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-  if [[ -n "$addr" ]]; then echo "$addr"; return; fi
-  echo "127.0.0.1"
-}
-
-require_cmd() {
-  local cmd="$1"
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "缺少依赖：$cmd，尝试自动安装..."
-    if command -v apt-get >/dev/null 2>&1; then
-      apt-get update && apt-get install -y "$cmd"
-    elif command -v yum >/dev/null 2>&1; then
-      yum install -y "$cmd"
-    elif command -v dnf >/dev/null 2>&1; then
-      dnf install -y "$cmd"
-    else
-      echo "无法自动安装 $cmd，请手动安装后重试。" >&2
-      exit 1
-    fi
-  fi
-}
-
 prompt() {
   local msg="$1" default="$2" var
   read -r -p "$msg [$default]: " var
@@ -191,67 +166,6 @@ uninstall_agent() {
   echo "Agent 已卸载"
 }
 
-install_panel() {
-  require_root
-  echo "== 安装主控面板 =="
-  local install_dir="$CTRL_DIR"
-  local run_user="imonitor"
-  local port="8080"
-  local host Detect
-  host=$(detect_public_addr)
-  read -r -p "安装目录 [${install_dir}]: " input; install_dir=${input:-$install_dir}
-  read -r -p "运行用户 [${run_user}]: " input; run_user=${input:-$run_user}
-  read -r -p "服务端口 [${port}]: " input; port=${input:-$port}
-  read -r -p "公共访问地址/域名（可留空自动检测） [${host}]: " input; host=${input:-$host}
-  read -r -p "管理员用户名 [admin]: " admin_user; admin_user=${admin_user:-admin}
-  read -r -s -p "管理员密码（留空随机）: " admin_pass; echo
-  if [[ -z "$admin_pass" ]]; then admin_pass=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16); echo "生成密码：$admin_pass"; fi
-  local public_host="http://${host}:${port}"
-
-  require_cmd git
-  tmpdir=$(mktemp -d)
-  git clone "$REPO_URL" "$tmpdir"
-  mkdir -p "$install_dir"
-  tar cf - --exclude='.git' --exclude='target' -C "$tmpdir" . | tar xf - -C "$install_dir"
-  useradd --system --create-home --shell /usr/sbin/nologin "$run_user" 2>/dev/null || true
-  chown -R "$run_user":"$run_user" "$install_dir"
-  install -m 0755 "$install_dir/scripts/i-mo" /usr/local/bin/i-mo
-
-  cat >/etc/systemd/system/${SERVICE_CTRL}.service <<EOF
-[Unit]
-Description=iMonitor Lite Central Server
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=${run_user}
-Group=${run_user}
-WorkingDirectory=${install_dir}
-Environment=IMONITOR_PUBLIC_URL=${public_host}
-Environment=IMONITOR_BIND=[::]:${port}
-Environment=IMONITOR_ADMIN_USER=${admin_user}
-Environment=IMONITOR_ADMIN_PASS=${admin_pass}
-ExecStart=${install_dir}/bin/imonitor
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-  systemctl daemon-reload
-  systemctl enable --now ${SERVICE_CTRL}.service
-  ctrl_status
-  echo "----------------------------------"
-  echo "主控面板已部署完成"
-  echo "访问地址：${public_host}"
-  echo "管理员账号：${admin_user}"
-  echo "管理员密码：${admin_pass}"
-  echo "如需修改地址/端口/凭据，可通过 i-mo 菜单或编辑 ${SERVICE_CTRL}.service 后重启。"
-}
-
 uninstall_panel() {
   require_root
   systemctl disable --now "${SERVICE_CTRL}.service" 2>/dev/null || true
@@ -350,7 +264,10 @@ main() {
   role=$(choose_role)
   case "$role" in
     server) server_menu ;;
-    agent) agent_menu ;;
+    agent)
+      echo "提示：如需安装主控面板，请使用发布包内的 scripts/install-panel.sh"
+      agent_menu
+      ;;
     both)
       echo "检测到主控和 Agent，选择要管理的角色："
       echo " 1) 主控面板"
@@ -360,11 +277,11 @@ main() {
       ;;
     none)
       echo "未检测到已安装的面板或 Agent。"
-      echo "选择操作："
-      echo " 1) 全自动安装主控面板"
-      echo " 2) 退出"
-      read -r -p "> " sel
-      if [[ "$sel" == "1" ]]; then install_panel; else exit 0; fi
+      echo "请使用独立安装脚本部署主控面板："
+      echo "  git clone https://github.com/616310/imonitor.git"
+      echo "  cd imonitor/scripts && sudo bash install-panel.sh"
+      echo "或使用已发布的安装包内 scripts/install-panel.sh"
+      exit 0
       ;;
   esac
 }
