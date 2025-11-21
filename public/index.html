@@ -241,15 +241,34 @@
                     <div class="flex items-center gap-2 text-xs text-gray-400 font-medium">
                         <i class="ph-fill ph-timer"></i> 已连续运行 {{ formatUptime(activeServer.data.uptime) }}
                     </div>
-                    <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-4 flex-wrap">
                         <div class="text-xs text-gray-400">Token 尾号 {{ activeServer.tokenSuffix }}</div>
-                        <div v-if="isAuthed" class="flex items-center gap-2">
-                            <button @click="updateLabel" class="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800 transition flex items-center gap-1">
-                                <i class="ph-bold ph-pencil-simple"></i> 修改标签
-                            </button>
-                            <button @click="deleteNode" class="px-3 py-1.5 bg-white text-red-600 rounded-lg text-xs font-semibold border border-red-200 hover:bg-red-50 transition flex items-center gap-1">
-                                <i class="ph-bold ph-trash"></i> 移除
-                            </button>
+                        <div v-if="isAuthed" class="flex items-center gap-2 flex-wrap">
+                            <div v-if="editingLabel" class="flex items-center gap-2">
+                                <input type="text" v-model="labelDraft" placeholder="新标签" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring focus:ring-blue-200" />
+                                <button @click="saveLabel" class="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800 transition flex items-center gap-1">
+                                    <i class="ph-bold ph-check"></i> 保存
+                                </button>
+                                <button @click="cancelEditLabel" class="px-3 py-1.5 bg-white text-gray-600 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 transition flex items-center gap-1">
+                                    <i class="ph-bold ph-x"></i> 取消
+                                </button>
+                            </div>
+                            <div v-else class="flex items-center gap-2">
+                                <button @click="startEditLabel" class="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800 transition flex items-center gap-1">
+                                    <i class="ph-bold ph-pencil-simple"></i> 修改标签
+                                </button>
+                                <button v-if="!deleteConfirm" @click="requestDelete" class="px-3 py-1.5 bg-white text-red-600 rounded-lg text-xs font-semibold border border-red-200 hover:bg-red-50 transition flex items-center gap-1">
+                                    <i class="ph-bold ph-trash"></i> 移除
+                                </button>
+                                <div v-else class="flex items-center gap-2">
+                                    <span class="text-xs text-red-600">确认移除？</span>
+                                    <button @click="deleteNode" class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition">确认</button>
+                                    <button @click="cancelDelete" class="px-3 py-1.5 bg-white text-gray-600 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 transition">取消</button>
+                                </div>
+                            </div>
+                            <div v-if="actionNotice" class="px-3 py-1 bg-white text-gray-700 rounded-full text-xs font-semibold border border-gray-200 shadow-sm">
+                                {{ actionNotice }}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -318,7 +337,10 @@ createApp({
         const servers = ref([]);
         const activeServer = ref(null);
         const showAddModal = ref(false);
-        const editingLabel = ref('');
+        const editingLabel = ref(false);
+        const labelDraft = ref('');
+        const deleteConfirm = ref(false);
+        const actionNotice = ref('');
         const installCommand = ref('');
         const pendingLabel = ref('');
         const lastUpdated = ref(null);
@@ -340,8 +362,18 @@ createApp({
                 const nodes = (data.nodes || []).map(transformNode);
                 // 仅展示已上报过的节点，过滤掉“待接入”占位
                 servers.value = nodes.filter(node => node.status !== 'pending');
+                refreshActiveServer();
             } catch (err) {
                 console.error(err);
+            }
+        };
+
+        const refreshActiveServer = () => {
+            if (!activeServer.value) return;
+            const found = servers.value.find(s => s.token === activeServer.value.token);
+            if (found) {
+                activeServer.value = found;
+                labelDraft.value = found.label || '';
             }
         };
 
@@ -353,6 +385,7 @@ createApp({
             const safe = (val, fallback = 0) => typeof val === 'number' ? val : fallback;
             return {
                 id: node.id,
+                label: node.label || '',
                 flag,
                 status,
                 statusText: status === 'online' ? '实时在线' : status === 'offline' ? '离线' : '待接入',
@@ -381,7 +414,13 @@ createApp({
             };
         };
 
-        const showDetail = (server) => { activeServer.value = server; };
+        const showDetail = (server) => {
+            activeServer.value = server;
+            editingLabel.value = false;
+            deleteConfirm.value = false;
+            actionNotice.value = '';
+            labelDraft.value = server.label || '';
+        };
         const closeDetail = () => { activeServer.value = null; };
 
         const openAddModal = () => {
@@ -421,10 +460,23 @@ createApp({
             }
         };
 
-        const updateLabel = async () => {
+        const setActionNotice = (msg) => {
+            actionNotice.value = msg;
+            setTimeout(() => (actionNotice.value = ''), 2000);
+        };
+
+        const startEditLabel = () => {
+            editingLabel.value = true;
+            labelDraft.value = activeServer.value?.label || '';
+        };
+
+        const cancelEditLabel = () => {
+            editingLabel.value = false;
+            labelDraft.value = activeServer.value?.label || '';
+        };
+
+        const saveLabel = async () => {
             if (!isAuthed.value || !activeServer.value) return;
-            const newLabel = prompt('请输入新的自定义标签（留空可清除）', activeServer.value.displayName === '未命名节点' ? '' : activeServer.value.displayName);
-            if (newLabel === null) return;
             try {
                 const res = await fetch(`/api/nodes/${activeServer.value.token}`, {
                     method: 'PATCH',
@@ -432,18 +484,28 @@ createApp({
                         'Content-Type': 'application/json',
                         ...(authHeader.value ? { Authorization: authHeader.value } : {})
                     },
-                    body: JSON.stringify({ label: newLabel || null })
+                    body: JSON.stringify({ label: labelDraft.value || null })
                 });
                 if (!res.ok) throw new Error('更新失败');
+                editingLabel.value = false;
                 await fetchNodes();
+                setActionNotice('标签已更新');
             } catch (err) {
-                alert(err.message || '更新失败');
+                setActionNotice(err.message || '更新失败');
             }
+        };
+
+        const requestDelete = () => {
+            if (!isAuthed.value) return;
+            deleteConfirm.value = true;
+        };
+
+        const cancelDelete = () => {
+            deleteConfirm.value = false;
         };
 
         const deleteNode = async () => {
             if (!isAuthed.value || !activeServer.value) return;
-            if (!confirm('确认移除该节点？')) return;
             try {
                 const res = await fetch(`/api/nodes/${activeServer.value.token}`, {
                     method: 'DELETE',
@@ -452,10 +514,11 @@ createApp({
                     }
                 });
                 if (!res.ok) throw new Error('删除失败');
+                deleteConfirm.value = false;
                 closeDetail();
                 await fetchNodes();
             } catch (err) {
-                alert(err.message || '删除失败');
+                setActionNotice(err.message || '删除失败');
             }
         };
 
@@ -597,7 +660,15 @@ createApp({
             overallHealth,
             overallHealthClass,
             copyNotice,
-            updateLabel,
+            labelDraft,
+            editingLabel,
+            deleteConfirm,
+            actionNotice,
+            startEditLabel,
+            cancelEditLabel,
+            saveLabel,
+            requestDelete,
+            cancelDelete,
             deleteNode,
             showLoginModal,
             loginUsername,
