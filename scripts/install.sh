@@ -146,9 +146,31 @@ line_in_file() {
   fi
 }
 
+ctrl_env() {
+  local key="$1"
+  [[ -f "$CTRL_UNIT" ]] || return
+  grep -o "^Environment=${key}=.*" "$CTRL_UNIT" | head -n1 | sed 's/^Environment='"$key"'=//;s/"//g'
+}
+
+ctrl_bind_port() {
+  local bind
+  bind=$(ctrl_env "IMONITOR_BIND")
+  echo "${bind##*:}" | tr -d ']'
+}
+
 ctrl_status() {
-  echo "面板状态（Web 控制台）："
-  systemctl status "$SERVICE_CTRL" --no-pager | head -n 5
+  local state since host port
+  state=$(systemctl is-active "$SERVICE_CTRL" 2>/dev/null || true)
+  since=$(systemctl show "$SERVICE_CTRL" -p ActiveEnterTimestamp --value 2>/dev/null)
+  host=$(ctrl_env "IMONITOR_PUBLIC_URL")
+  port=$(ctrl_bind_port)
+  [[ -z "$host" && -n "$port" ]] && host="http://127.0.0.1:${port}"
+  echo "面板状态：${state:-unknown}"
+  [[ -n "$since" ]] && echo "运行起始：$since"
+  [[ -n "$host" ]] && echo "访问地址：$host"
+  if [[ "$state" != "active" ]]; then
+    echo "提示：使用 i-mo 菜单启动/重启，或运行 systemctl start ${SERVICE_CTRL}.service"
+  fi
 }
 
 ctrl_logs() {
@@ -207,8 +229,27 @@ ctrl_set_admin() {
 }
 
 agent_status() {
-  echo "Agent 状态（采集与上报服务）："
-  systemctl status "$SERVICE_AGENT" --no-pager | head -n 5
+  local state since token endpoint interval flag
+  state=$(systemctl is-active "$SERVICE_AGENT" 2>/dev/null || true)
+  since=$(systemctl show "$SERVICE_AGENT" -p ActiveEnterTimestamp --value 2>/dev/null)
+  if [[ -f "$AGENT_ENV" ]]; then
+    token=$(grep "^IMONITOR_TOKEN" "$AGENT_ENV" | cut -d= -f2-)
+    endpoint=$(grep "^IMONITOR_ENDPOINT" "$AGENT_ENV" | cut -d= -f2-)
+    interval=$(grep "^IMONITOR_INTERVAL" "$AGENT_ENV" | cut -d= -f2-)
+    flag=$(grep "^IMONITOR_FLAG" "$AGENT_ENV" | cut -d= -f2-)
+  fi
+  echo "Agent 状态：${state:-unknown}"
+  [[ -n "$since" ]] && echo "运行起始：$since"
+  [[ -n "$endpoint" ]] && echo "上报地址：$endpoint"
+  if [[ -n "$token" ]]; then
+    local short="${token:0:6}...${token: -6}"
+    echo "上报令牌：$short"
+  fi
+  [[ -n "$interval" ]] && echo "上报间隔：${interval} 秒"
+  [[ -n "$flag" ]] && echo "节点标识：$flag"
+  if [[ "$state" != "active" ]]; then
+    echo "提示：使用 i-mo 菜单启动/重启，或运行 systemctl restart ${SERVICE_AGENT}.service"
+  fi
 }
 
 agent_logs() {
@@ -289,6 +330,12 @@ EOF
   systemctl daemon-reload
   systemctl enable --now ${SERVICE_CTRL}.service
   ctrl_status
+  echo "----------------------------------"
+  echo "主控面板已部署完成"
+  echo "访问地址：${public_host}"
+  echo "管理员账号：${admin_user}"
+  echo "管理员密码：${admin_pass}"
+  echo "如需修改地址/端口/凭据，可通过 i-mo 菜单或编辑 ${SERVICE_CTRL}.service 后重启。"
 }
 
 uninstall_panel() {
