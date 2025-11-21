@@ -11,6 +11,40 @@ fi
 REPO_URL="https://github.com/616310/imonitor.git"
 TMP_CLONE=""
 
+prompt_default() {
+  local msg="$1" default="$2" var=""
+  if read -r -p "$msg [$default]: " var < /dev/tty 2>/dev/null; then
+    echo "${var:-$default}"
+  else
+    echo "$default"
+  fi
+}
+
+prompt_secret() {
+  local msg="$1" default="$2" var=""
+  if read -r -s -p "$msg (留空随机): " var < /dev/tty 2>/dev/null; then
+    echo
+    echo "${var:-$default}"
+  else
+    echo
+    echo "$default"
+  fi
+}
+
+install_git_if_needed() {
+  if command -v git >/dev/null 2>&1; then
+    return
+  fi
+  echo "[git] 未检测到 git，尝试自动安装..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -y && apt-get install -y git || true
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y git || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y git || true
+  fi
+}
+
 detect_public_addr() {
   local addr
   addr=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
@@ -38,12 +72,13 @@ SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || true)"
 if [[ ! -x "$SOURCE_DIR/bin/imonitor" ]]; then
   TMP_CLONE="$(mktemp -d)"
   trap '[[ -n "$TMP_CLONE" ]] && rm -rf "$TMP_CLONE"' EXIT
+  install_git_if_needed
   if command -v git >/dev/null 2>&1; then
     echo "[clone] 拉取仓库：$REPO_URL"
     git clone --depth 1 "$REPO_URL" "$TMP_CLONE/imonitor"
     SOURCE_DIR="$TMP_CLONE/imonitor"
   else
-    echo "[download] git 未安装，使用压缩包下载仓库"
+    echo "[download] git 未安装或安装失败，使用压缩包下载仓库"
     curl -fsSL "${REPO_URL%.*}/archive/refs/heads/main.tar.gz" | tar xz -C "$TMP_CLONE"
     SOURCE_DIR="$TMP_CLONE/imonitor-main"
   fi
@@ -59,16 +94,18 @@ PORT="8080"
 ADMIN_USER="admin"
 
 HOST_DETECTED=$(detect_public_addr)
-read -r -p "安装目录 [${INSTALL_DIR}]: " input; INSTALL_DIR=${input:-$INSTALL_DIR}
-read -r -p "运行用户 (将自动创建) [${RUN_USER}]: " input; RUN_USER=${input:-$RUN_USER}
-read -r -p "服务监听端口 [${PORT}]: " input; PORT=${input:-$PORT}
-read -r -p "公网访问地址/域名（留空自动检测） [${HOST_DETECTED}]: " input; input=${input:-$HOST_DETECTED}
-HOST_NORMALIZED=$(normalize_host "$input")
-read -r -p "管理员用户名 [${ADMIN_USER}]: " input; ADMIN_USER=${input:-$ADMIN_USER}
-read -r -s -p "管理员密码（留空自动生成随机密码）: " ADMIN_PASS; echo
-if [[ -z "$ADMIN_PASS" ]]; then
+INSTALL_DIR=$(prompt_default "安装目录" "${INSTALL_DIR}")
+RUN_USER=$(prompt_default "运行用户 (将自动创建)" "${RUN_USER}")
+PORT=$(prompt_default "服务监听端口" "${PORT}")
+ADDR_INPUT=$(prompt_default "公网访问地址/域名（留空自动检测）" "${HOST_DETECTED}")
+HOST_NORMALIZED=$(normalize_host "$ADDR_INPUT")
+ADMIN_USER=$(prompt_default "管理员用户名" "${ADMIN_USER}")
+ADMIN_PASS_INPUT=$(prompt_secret "管理员密码" "")
+if [[ -z "$ADMIN_PASS_INPUT" ]]; then
   ADMIN_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
   echo "生成的管理员密码：$ADMIN_PASS"
+else
+  ADMIN_PASS="$ADMIN_PASS_INPUT"
 fi
 
 PUBLIC_URL="http://${HOST_NORMALIZED}:${PORT}"
