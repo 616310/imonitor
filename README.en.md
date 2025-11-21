@@ -1,21 +1,23 @@
 # iMonitor
 
-Production-ready server resource monitor featuring a FastAPI backend, polished Vue/Tailwind UI, token-based agent onboarding, and automated install scripts.
+Production-ready server resource monitor with an Axum (Rust) backend, Vue/Tailwind UI, token-based Rust agent, and automated install scripts.
 
 ## Components
-- **FastAPI core** (`app/`) – Stores node metadata in SQLite, exposes REST endpoints for UI, agent registration, and metric ingestion.
-- **Vue 3 UI** (`public/index.html`) – Modern glassmorphism dashboard showing CPU/RAM/disk, bandwidth, uptime, and per-node details.
+- **Control panel** (`src/main.rs`) – Axum + SQLite; serves static UI, node listing, token issuance, and metric ingestion.
+- **Vue 3 UI** (`public/index.html`) – Glass dashboard for CPU/RAM/disk, bandwidth, uptime, load, and per-node details.
 - **Agent** (`scripts/agent`) – Static Rust binary reading `/proc` and filesystem; no Python/runtime required, defaults to 5s interval.
-- **Installer** (`scripts/install.sh`) – One-command bootstrap downloading the agent (and musl loader if needed), writing env vars, and provisioning a `systemd` service.
+- **Panel installer** (`scripts/install-panel.sh`) – Root-only script that copies the build, writes `imonitor-lite` systemd, and prints the access URL/admin credentials.
+- **Agent installer** (`scripts/install.sh`) – Downloads the agent and musl loader (if missing), writes `imonitor-agent` systemd on the target node.
+- **CLI (`i-mo`)** – Operations only (status/logs/start/stop/restart/config view/uninstall); installation is handled by the scripts above.
 
 ## Quick server setup (no build)
 ```bash
 git clone https://github.com/616310/imonitor.git
 cd imonitor
-sudo bash scripts/setup.sh    # answer prompts; default public URL is fine for local
+sudo bash scripts/install-panel.sh    # answer prompts for path/port/public URL/admin
 ```
-The script copies files to `/opt/imonitor-lite`, writes `imonitor-lite` systemd service, and starts it. It listens on `0.0.0.0:8080`; set `IMONITOR_PUBLIC_URL` when prompted if you front it with a reverse proxy/HTTPS domain.
-Environment vars: `IMONITOR_BIND` (default `[::]:8080`, align port with your public URL), `IMONITOR_PUBLIC_URL` (must include http/https), `IMONITOR_OFFLINE_TIMEOUT`.
+The script copies the build to `/opt/imonitor-lite`, creates the `imonitor-lite` systemd service, starts it, and prints the access URL/admin credentials. The service listens on `[::]:8080` by default; align `IMONITOR_PUBLIC_URL` with your reverse proxy/HTTPS domain when prompted.
+Key env vars: `IMONITOR_BIND` (default `[::]:8080`), `IMONITOR_PUBLIC_URL` (with http/https), `IMONITOR_OFFLINE_TIMEOUT` (default 30s).
 
 ## Quick Start
 ```bash

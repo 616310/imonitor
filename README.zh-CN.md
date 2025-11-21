@@ -1,14 +1,25 @@
 # iMonitor 中文指南
 
-iMonitor 是一套开箱即用的服务器资源监控平台，包含 Rust 控制中心、Vue 3 + Tailwind UI、极轻量 Rust Agent（二进制，免 Python）以及一键安装脚本。支持本机/远程节点统一展示 CPU、内存、磁盘、负载、网络速率等指标，并可随时下发新的接入令牌。
+iMonitor 是一套开箱即用的服务器资源监控平台，包含 Rust 控制中心、Vue 3 + Tailwind UI、极轻量 Rust Agent（二进制，免 Python）以及分离的安装脚本。支持本机/远程节点统一展示 CPU、内存、磁盘、负载、网络速率等指标，并可随时下发新的接入令牌。
 
 ## 架构组成
 - **控制中心 (`src/main.rs`)**：Axum + SQLite，提供 `/api/nodes`、`/api/report`、`/install.sh` 等接口。
 - **前端 (`public/index.html`)**：玻璃拟态风格的看板，实时轮询节点状态并提供详情抽屉和“节点接入”弹窗。
 - **Agent (`scripts/agent`)**：静态编译的 Rust 可执行文件，直接读取 `/proc` 与文件系统获取指标，无需 Python/依赖，默认每 5 秒上报。
-- **一键安装脚本 (`scripts/install.sh`)**：下载 Agent 与 musl loader（若目标机缺失），写入 `systemd` 服务 `imonitor-agent.service`，在低配/旧系统上也可部署。
+- **主控安装脚本 (`scripts/install-panel.sh`)**：独立脚本，root 运行，拷贝当前目录到目标路径、写入 `imonitor-lite` systemd 单元并输出访问地址/管理员账号。
+- **Agent 接入脚本 (`scripts/install.sh`)**：下载 Agent 与 musl loader（若目标机缺失），写入 `imonitor-agent.service`，在低配/旧系统上也可部署。
+- **运维 CLI (`i-mo`)**：只负责已安装主控/Agent 的状态、日志、启停、配置查看等，不再用于安装。
 
-## 本地部署
+## 安装主控面板（不依赖 i-mo）
+```bash
+git clone https://github.com/616310/imonitor.git
+cd imonitor
+# 如需自行构建可执行文件：cargo build --release
+sudo bash scripts/install-panel.sh
+```
+按提示填写安装目录/端口/公共地址/管理员账号后，脚本会输出最终访问地址与凭据，systemd 服务名为 `imonitor-lite`。
+
+## 本地开发运行
 ```bash
 cargo build --release
 ./target/release/imonitor
@@ -38,6 +49,9 @@ journalctl -u imonitor-agent -f
 
 # 清理/重置节点
 curl -X DELETE https://monitor.example.com/api/nodes/<token>
+
+# 运维 CLI（已安装后）
+sudo i-mo   # 在主控或 Agent 机器上查看状态/日志/启停，若未安装会提示使用 install-panel.sh
 ```
 
 欢迎根据实际需求扩展数据库、权限控制或图表展示。

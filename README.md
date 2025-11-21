@@ -2,24 +2,24 @@
 
 **语言 / Language** · [中文](README.md) | [English](README.en.md)
 
-iMonitor 是一套开箱即用的服务器资源监控平台，后端 Rust（Axum + SQLite），前端 Vue + Tailwind，极轻量 Rust Agent（静态二进制，免依赖），配套“一键脚本”和交互式 `i-mo` 管理工具。可统一展示 CPU/内存/磁盘/负载/网络等指标，并在线下发接入令牌。
+iMonitor 是一套开箱即用的服务器资源监控平台，后端 Rust（Axum + SQLite），前端 Vue + Tailwind，极轻量 Rust Agent（静态二进制，免依赖），配套独立的安装脚本与交互式 `i-mo` 运维工具。可统一展示 CPU/内存/磁盘/负载/网络等指标，并在线下发接入令牌。
 
 ## 功能与组件
 - **控制面板**：`src/main.rs`（Axum），静态文件 `public/`。
 - **Agent**：`scripts/agent`，读取 `/proc` 与文件系统，默认 3 秒上报。
+- **主控安装**：`scripts/install-panel.sh` 独立脚本，root 运行，拷贝程序并写入 `imonitor-lite` systemd，输出访问地址与管理员账号。
 - **一键接入**：`/install.sh` 会下发 Agent + musl loader，并生成 `imonitor-agent` systemd。
-- **交互式 CLI (`i-mo`)**：
-  - 面板侧：安装/更新/卸载面板，查看状态/日志，启动/停止/重启，修改端口/公共地址/管理员账号，查看当前设置。
-  - Agent 侧：查看状态/日志，启动/停止/重启，查看设置，卸载 Agent。
+- **交互式 CLI (`i-mo`)**：仅用于已安装后的运维（查看状态/日志、启停、修改配置、卸载等），不再承担安装主控。
 
 ## 快速开始
-### 1）安装面板（推荐用 `i-mo`）
+### 1）安装面板（独立脚本）
 ```bash
-curl -fsSL https://raw.githubusercontent.com/616310/imonitor/main/scripts/i-mo -o /usr/local/bin/i-mo
-chmod +x /usr/local/bin/i-mo
-sudo i-mo          # 选择“全自动安装主控面板”，按提示填端口/公共地址/管理员账号
+git clone https://github.com/616310/imonitor.git
+cd imonitor
+# 如需自行构建可执行文件：cargo build --release
+sudo bash scripts/install-panel.sh   # 按提示选择目录/端口/公共地址/管理员账号
 ```
-安装完成后默认目录 `/opt/imonitor-lite`，服务名 `imonitor-lite`，可通过 `i-mo` 管理。
+默认安装到 `/opt/imonitor-lite`，systemd 服务名 `imonitor-lite`，脚本结束会打印访问地址和管理员凭据。
 
 ### 2）接入新节点
 1. 打开控制台点击“节点接入”，复制生成的命令。
@@ -31,8 +31,8 @@ sudo i-mo          # 选择“全自动安装主控面板”，按提示填端�
 3. `imonitor-agent` 服务启动后数秒即可在面板看到数据。
 
 ### 3）命令行管理
-- **面板**：`sudo i-mo`（可选角色选择），支持启动/停止/重启、改端口/地址/管理员、查看设置、更新版本（git pull + 重启）、卸载。
-- **Agent**：`sudo i-mo`（在安装了 Agent 的机器），支持启动/停止/重启、查看设置、卸载。
+- **面板**：`sudo i-mo`（在主控机器），支持启动/停止/重启、改端口/地址/管理员、查看设置、更新版本（git pull + 重启）、卸载。
+- **Agent**：`sudo i-mo`（在安装了 Agent 的机器），支持启动/停止/重启、查看设置、卸载。未安装主控时会提示使用 `scripts/install-panel.sh`。
 
 ## 手动编译/运行（可选）
 ```bash
