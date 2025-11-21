@@ -35,6 +35,13 @@ struct CpuTimes {
     steal: u64,
 }
 
+struct CpuInfo {
+    model: String,
+    cores: u64,
+    hypervisor: bool,
+    hypervisor_vendor: Option<String>,
+}
+
 fn main() {
     let cfg = match load_config() {
         Ok(cfg) => cfg,
@@ -64,7 +71,7 @@ fn main() {
     let hostname = get_hostname();
     let ip_cache = detect_ip();
     let (os_short, os_full) = read_os_info();
-    let (cpu_model, cpu_cores) = read_cpu_info();
+    let cpu_info = read_cpu_info();
 
     let mut prev_cpu = read_cpu_times();
     let mut prev_net = read_net_bytes().unwrap_or((0, 0));
@@ -106,8 +113,12 @@ fn main() {
         meta.insert("os_short".into(), json!(os_short.clone()));
         meta.insert("os_full".into(), json!(os_full.clone()));
         meta.insert("arch".into(), json!(env::consts::ARCH));
-        meta.insert("cpu_model".into(), json!(cpu_model.clone()));
-        meta.insert("cpu_cores".into(), json!(cpu_cores));
+        meta.insert("cpu_model".into(), json!(cpu_info.model.clone()));
+        meta.insert("cpu_cores".into(), json!(cpu_info.cores));
+        meta.insert("hypervisor".into(), json!(cpu_info.hypervisor));
+        if let Some(v) = cpu_info.hypervisor_vendor.clone() {
+            meta.insert("hypervisor_vendor".into(), json!(v));
+        }
         meta.insert("flag".into(), json!(cfg.flag.clone()));
 
         let mut metrics = Map::new();
@@ -403,7 +414,7 @@ fn read_os_info() -> (String, String) {
     (os_short, os_full)
 }
 
-fn read_cpu_info() -> (String, u64) {
+fn read_cpu_info() -> CpuInfo {
     let file = File::open("/proc/cpuinfo");
     if let Ok(file) = file {
         let mut model = "Unknown CPU".to_string();
@@ -437,9 +448,19 @@ fn read_cpu_info() -> (String, u64) {
             }
             model = label;
         }
-        return (model, cores);
+        return CpuInfo {
+            model,
+            cores,
+            hypervisor,
+            hypervisor_vendor: if hyper_vendor.is_empty() { None } else { Some(hyper_vendor) },
+        };
     }
-    ("Unknown CPU".to_string(), 1)
+    CpuInfo {
+        model: "Unknown CPU".to_string(),
+        cores: 1,
+        hypervisor: false,
+        hypervisor_vendor: None,
+    }
 }
 
 fn bytes_per_sec_to_mb(bytes: u64, interval_sec: u64) -> f64 {
