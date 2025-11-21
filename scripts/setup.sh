@@ -78,6 +78,7 @@ tar cf - --exclude='.git' --exclude='target' . | tar xf - -C "$INSTALL_DIR"
 chown -R "$RUN_USER":"$RUN_USER" "$INSTALL_DIR"
 
 SERVICE_FILE="/etc/systemd/system/imonitor-lite.service"
+install -m 0755 "$INSTALL_DIR/scripts/i-mo" /usr/local/bin/i-mo
 
 echo "[3/5] 写入 systemd 单元 ${SERVICE_FILE}"
 cat > "$SERVICE_FILE" <<EOF

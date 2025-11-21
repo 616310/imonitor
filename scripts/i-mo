@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Simple CLI entrypoint: i-mo
-# Manages controller (imonitor-lite) or agent (imonitor-agent) depending on what's installed.
-
 SERVICE_CTRL="imonitor-lite"
 SERVICE_AGENT="imonitor-agent"
 CTRL_UNIT="/etc/systemd/system/${SERVICE_CTRL}.service"
@@ -36,56 +33,84 @@ line_in_file() {
 }
 
 ctrl_status() {
-  systemctl status "$SERVICE_CTRL" --no-pager
-}
-
-ctrl_logs() {
-  journalctl -u "$SERVICE_CTRL" -n 50 --no-pager
-}
-
-ctrl_reload() {
-  systemctl daemon-reload
-  systemctl restart "$SERVICE_CTRL"
+  echo "面板状态："
   systemctl status "$SERVICE_CTRL" --no-pager | head -n 5
 }
 
-ctrl_edit_settings() {
-  local port host public bind admin_user admin_pass
-  require_root
-  if [[ ! -f "$CTRL_UNIT" ]]; then
-    echo "未找到 $CTRL_UNIT" >&2
-    return
-  fi
-  port=$(grep -o "IMONITOR_BIND=.*:" "$CTRL_UNIT" | head -n1 | sed 's/.*://;s/]//;s/\"//g')
-  port=${port:-8080}
+ctrl_logs() {
+  echo "面板最新日志："
+  journalctl -u "$SERVICE_CTRL" -n 50 --no-pager
+}
+
+ctrl_start() { systemctl start "$SERVICE_CTRL" && ctrl_status; }
+ctrl_stop() { systemctl stop "$SERVICE_CTRL" && ctrl_status; }
+ctrl_restart() { systemctl restart "$SERVICE_CTRL" && ctrl_status; }
+
+ctrl_settings() {
+  local port host admin_user admin_pass
+  port=$(grep -o "IMONITOR_BIND=.*:" "$CTRL_UNIT" | head -n1 | sed 's/.*://;s/].*//;s/\"//g')
   host=$(grep -o "IMONITOR_PUBLIC_URL=.*" "$CTRL_UNIT" | head -n1 | sed 's/.*=//;s/\"//g')
   admin_user=$(grep -o "IMONITOR_ADMIN_USER=.*" "$CTRL_UNIT" | head -n1 | sed 's/.*=//;s/\"//g')
   admin_pass=$(grep -o "IMONITOR_ADMIN_PASS=.*" "$CTRL_UNIT" | head -n1 | sed 's/.*=//;s/\"//g')
+  echo "当前设置："
+  echo "  端口: ${port:-未知}"
+  echo "  公共地址: ${host:-未知}"
+  echo "  管理员: ${admin_user:-未知}"
+  echo "  管理员密码: ${admin_pass:-<未设置>}"
+}
 
-  port=$(prompt "新的服务端口" "$port")
-  host=$(prompt "新的公共地址（含协议）" "$host")
-  admin_user=$(prompt "管理员用户名" "${admin_user:-admin}")
-  read -r -s -p "管理员密码 (回车保留当前): " input_pass; echo
-  if [[ -n "$input_pass" ]]; then
-    admin_pass="$input_pass"
-  fi
-  bind="[::]:${port}"
-
+ctrl_set_port() {
+  require_root
+  local port
+  port=$(prompt "新的服务端口" "8080")
+  local bind="[::]:${port}"
   sed -i "s?^Environment=IMONITOR_BIND=.*?Environment=IMONITOR_BIND=${bind}?g" "$CTRL_UNIT"
+  echo "端口已更新为 ${port}"
+  systemctl daemon-reload
+  ctrl_restart
+}
+
+ctrl_set_public() {
+  require_root
+  local host
+  host=$(prompt "新的公共地址（含 http/https）" "http://127.0.0.1:8080")
   sed -i "s?^Environment=IMONITOR_PUBLIC_URL=.*?Environment=IMONITOR_PUBLIC_URL=${host}?g" "$CTRL_UNIT"
+  echo "公共地址已更新为 ${host}"
+  systemctl daemon-reload
+  ctrl_restart
+}
+
+ctrl_set_admin() {
+  require_root
+  local admin_user admin_pass
+  admin_user=$(prompt "管理员用户名" "admin")
+  read -r -s -p "管理员密码: " admin_pass; echo
   line_in_file "Environment=IMONITOR_ADMIN_USER" "$CTRL_UNIT" "Environment=IMONITOR_ADMIN_USER=${admin_user}"
   line_in_file "Environment=IMONITOR_ADMIN_PASS" "$CTRL_UNIT" "Environment=IMONITOR_ADMIN_PASS=${admin_pass}"
-
-  echo "已更新配置，正在重启..."
-  ctrl_reload
+  echo "管理员账号已更新"
+  systemctl daemon-reload
+  ctrl_restart
 }
 
 agent_status() {
-  systemctl status "$SERVICE_AGENT" --no-pager
+  echo "Agent 状态："
+  systemctl status "$SERVICE_AGENT" --no-pager | head -n 5
 }
 
 agent_logs() {
+  echo "Agent 最新日志："
   journalctl -u "$SERVICE_AGENT" -n 50 --no-pager
+}
+
+agent_restart() { systemctl restart "$SERVICE_AGENT" && agent_status; }
+
+agent_settings() {
+  if [[ ! -f "$AGENT_ENV" ]]; then
+    echo "未找到 $AGENT_ENV" >&2
+    return
+  fi
+  echo "当前 Agent 设置："
+  cat "$AGENT_ENV"
 }
 
 agent_edit_env() {
@@ -113,7 +138,7 @@ IMONITOR_FLAG=$flag
 EOF
 
   systemctl restart "$SERVICE_AGENT"
-  agent_status | head -n 5
+  agent_status
 }
 
 choose_role() {
@@ -125,20 +150,30 @@ choose_role() {
 server_menu() {
   while true; do
     cat <<'MENU'
-[i-mo] 请选择操作:
+[i-mo 主控] 请选择操作:
  1) 查看状态
  2) 查看最近日志
- 3) 重启服务
- 4) 修改端口/公共地址/管理员账号
- 5) 退出
+ 3) 启动面板
+ 4) 停止面板
+ 5) 重启面板
+ 6) 修改端口
+ 7) 修改公共地址
+ 8) 修改管理员账号/密码
+ 9) 查看设置
+10) 退出
 MENU
     read -r -p "> " sel
     case "$sel" in
       1) ctrl_status ;;
       2) ctrl_logs ;;
-      3) ctrl_reload ;;
-      4) ctrl_edit_settings ;;
-      5) exit 0 ;;
+      3) ctrl_start ;;
+      4) ctrl_stop ;;
+      5) ctrl_restart ;;
+      6) ctrl_set_port ;;
+      7) ctrl_set_public ;;
+      8) ctrl_set_admin ;;
+      9) ctrl_settings ;;
+      10) exit 0 ;;
     esac
   done
 }
@@ -146,20 +181,22 @@ MENU
 agent_menu() {
   while true; do
     cat <<'MENU'
-[i-mo] 请选择操作:
+[i-mo Agent] 请选择操作:
  1) 查看状态
  2) 查看最近日志
- 3) 重启服务
+ 3) 重启 Agent
  4) 修改 token/endpoint/间隔/flag
- 5) 退出
+ 5) 查看当前设置
+ 6) 退出
 MENU
     read -r -p "> " sel
     case "$sel" in
       1) agent_status ;;
       2) agent_logs ;;
-      3) systemctl restart "$SERVICE_AGENT" && agent_status | head -n 5 ;;
+      3) agent_restart ;;
       4) agent_edit_env ;;
-      5) exit 0 ;;
+      5) agent_settings ;;
+      6) exit 0 ;;
     esac
   done
 }

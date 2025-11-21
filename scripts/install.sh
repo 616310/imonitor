@@ -85,6 +85,61 @@ EOF_ENV
 
 AGENT_CMD="$AGENT_BIN --token=\$IMONITOR_TOKEN --endpoint=\$IMONITOR_ENDPOINT --interval=\$IMONITOR_INTERVAL --flag=\$IMONITOR_FLAG"
 
+# 安装 i-mo CLI（Agent 侧）
+cat > /usr/local/bin/i-mo <<'EOF_I_MO'
+#!/usr/bin/env bash
+set -euo pipefail
+SERVICE_AGENT="imonitor-agent"
+AGENT_ENV="/opt/imonitor-agent/agent.env"
+require_root() { if [[ "$EUID" -ne 0 ]]; then echo "请使用 root 权限运行 (sudo i-mo)"; exit 1; fi; }
+prompt() { local msg="$1" default="$2" var; read -r -p "$msg [$default]: " var; echo "${var:-$default}"; }
+agent_status(){ echo "Agent 状态："; systemctl status "$SERVICE_AGENT" --no-pager | head -n 5; }
+agent_logs(){ echo "Agent 最新日志："; journalctl -u "$SERVICE_AGENT" -n 50 --no-pager; }
+agent_restart(){ systemctl restart "$SERVICE_AGENT" && agent_status; }
+agent_settings(){ [[ -f "$AGENT_ENV" ]] && { echo "当前 Agent 设置："; cat "$AGENT_ENV"; } || echo "未找到 $AGENT_ENV"; }
+agent_edit_env(){
+  require_root
+  [[ -f "$AGENT_ENV" ]] || { echo "未找到 $AGENT_ENV"; return; }
+  local token endpoint interval flag
+  token=$(grep "^IMONITOR_TOKEN" "$AGENT_ENV" | cut -d= -f2-)
+  endpoint=$(grep "^IMONITOR_ENDPOINT" "$AGENT_ENV" | cut -d= -f2-)
+  interval=$(grep "^IMONITOR_INTERVAL" "$AGENT_ENV" | cut -d= -f2-)
+  flag=$(grep "^IMONITOR_FLAG" "$AGENT_ENV" | cut -d= -f2-)
+  token=$(prompt "Token" "$token")
+  endpoint=$(prompt "Endpoint" "$endpoint")
+  interval=$(prompt "上报间隔(秒)" "$interval")
+  flag=$(prompt "标识 Emoji" "$flag")
+  cat >"$AGENT_ENV" <<EOF_ENV
+IMONITOR_TOKEN=$token
+IMONITOR_ENDPOINT=$endpoint
+IMONITOR_INTERVAL=$interval
+IMONITOR_FLAG=$flag
+EOF_ENV
+  agent_restart
+}
+while true; do
+cat <<'MENU'
+[i-mo Agent] 请选择操作:
+ 1) 查看状态
+ 2) 查看最近日志
+ 3) 重启 Agent
+ 4) 修改 token/endpoint/间隔/flag
+ 5) 查看当前设置
+ 6) 退出
+MENU
+read -r -p "> " sel
+case "$sel" in
+ 1) agent_status ;;
+ 2) agent_logs ;;
+ 3) agent_restart ;;
+ 4) agent_edit_env ;;
+ 5) agent_settings ;;
+ 6) exit 0 ;;
+esac
+done
+EOF_I_MO
+chmod +x /usr/local/bin/i-mo
+
 cat > /etc/systemd/system/$SERVICE_NAME.service <<EOF_SERVICE
 [Unit]
 Description=iMonitor Agent

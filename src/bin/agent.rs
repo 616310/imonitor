@@ -421,10 +421,13 @@ fn read_cpu_info() -> CpuInfo {
         let mut cores = 0u64;
         let mut hypervisor = false;
         let mut hyper_vendor = String::new();
+        let mut raw_model = String::new();
         for line in BufReader::new(file).lines().flatten() {
             if line.starts_with("model name") && model == "Unknown CPU" {
                 if let Some(val) = line.split(':').nth(1) {
-                    model = val.trim().to_string();
+                    let trimmed = val.trim().to_string();
+                    model = trimmed.clone();
+                    raw_model = trimmed;
                 }
             } else if line.starts_with("flags") && line.contains("hypervisor") {
                 hypervisor = true;
@@ -444,13 +447,13 @@ fn read_cpu_info() -> CpuInfo {
             hyper_vendor = "KVM/VM".to_string();
         }
         if hypervisor {
-            let mut label = "虚拟 CPU".to_string();
+            // 使用底层型号作为主显示，附带虚拟化标记
+            let base = if !raw_model.is_empty() { raw_model.clone() } else { model.clone() };
             if !hyper_vendor.is_empty() {
-                label.push_str(&format!(" ({})", hyper_vendor));
+                model = format!("{} ({})", base, hyper_vendor);
             } else {
-                label.push_str(&format!(" / {}", model));
+                model = base;
             }
-            model = label;
         }
         return CpuInfo {
             model,
