@@ -21,17 +21,26 @@ has_service() {
 
 detect_public_addr() {
   addr=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-  if [[ -n "$addr" ]]; then echo "http://[$addr]:8080"; return; fi
+  if [[ -n "$addr" ]]; then echo "[$addr]"; return; fi
   addr=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-  if [[ -n "$addr" ]]; then echo "http://$addr:8080"; return; fi
-  echo "http://127.0.0.1:8080"
+  if [[ -n "$addr" ]]; then echo "$addr"; return; fi
+  echo "127.0.0.1"
 }
 
 require_cmd() {
   local cmd="$1"
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "缺少依赖：$cmd，请先安装。" >&2
-    exit 1
+    echo "缺少依赖：$cmd，尝试自动安装..."
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get update && apt-get install -y "$cmd"
+    elif command -v yum >/dev/null 2>&1; then
+      yum install -y "$cmd"
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf install -y "$cmd"
+    else
+      echo "无法自动安装 $cmd，请手动安装后重试。" >&2
+      exit 1
+    fi
   fi
 }
 
@@ -146,15 +155,16 @@ install_panel() {
   local install_dir="$CTRL_DIR"
   local run_user="imonitor"
   local port="8080"
-  local public_host
-  public_host=$(detect_public_addr)
+  local host Detect
+  host=$(detect_public_addr)
   read -r -p "安装目录 [${install_dir}]: " input; install_dir=${input:-$install_dir}
   read -r -p "运行用户 [${run_user}]: " input; run_user=${input:-$run_user}
   read -r -p "服务端口 [${port}]: " input; port=${input:-$port}
-  read -r -p "公共访问地址（含协议） [${public_host}]: " input; public_host=${input:-$public_host}
+  read -r -p "公共访问地址/域名（可留空自动检测） [${host}]: " input; host=${input:-$host}
   read -r -p "管理员用户名 [admin]: " admin_user; admin_user=${admin_user:-admin}
   read -r -s -p "管理员密码（留空随机）: " admin_pass; echo
   if [[ -z "$admin_pass" ]]; then admin_pass=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16); echo "生成密码：$admin_pass"; fi
+  local public_host="http://${host}:${port}"
 
   require_cmd git
   tmpdir=$(mktemp -d)
