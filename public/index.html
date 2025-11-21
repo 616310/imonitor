@@ -241,7 +241,17 @@
                     <div class="flex items-center gap-2 text-xs text-gray-400 font-medium">
                         <i class="ph-fill ph-timer"></i> 已连续运行 {{ formatUptime(activeServer.data.uptime) }}
                     </div>
-                    <div class="text-xs text-gray-400">Token 尾号 {{ activeServer.tokenSuffix }}</div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-xs text-gray-400">Token 尾号 {{ activeServer.tokenSuffix }}</div>
+                        <div v-if="isAuthed" class="flex items-center gap-2">
+                            <button @click="updateLabel" class="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-800 transition flex items-center gap-1">
+                                <i class="ph-bold ph-pencil-simple"></i> 修改标签
+                            </button>
+                            <button @click="deleteNode" class="px-3 py-1.5 bg-white text-red-600 rounded-lg text-xs font-semibold border border-red-200 hover:bg-red-50 transition flex items-center gap-1">
+                                <i class="ph-bold ph-trash"></i> 移除
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -308,6 +318,7 @@ createApp({
         const servers = ref([]);
         const activeServer = ref(null);
         const showAddModal = ref(false);
+        const editingLabel = ref('');
         const installCommand = ref('');
         const pendingLabel = ref('');
         const lastUpdated = ref(null);
@@ -350,6 +361,7 @@ createApp({
                 ip: node.ip_address,
                 last_seen: node.last_seen,
                 tokenSuffix: (node.id || '').slice(-6),
+                token: node.token,
                 data: {
                     os_simple: meta.os_short || meta.os || '未知系统',
                     os_full: meta.os_full || meta.os || '未知系统',
@@ -406,6 +418,44 @@ createApp({
                 pendingLabel.value = '';
             } catch (err) {
                 alert(err.message || '生成失败');
+            }
+        };
+
+        const updateLabel = async () => {
+            if (!isAuthed.value || !activeServer.value) return;
+            const newLabel = prompt('请输入新的自定义标签（留空可清除）', activeServer.value.displayName === '未命名节点' ? '' : activeServer.value.displayName);
+            if (newLabel === null) return;
+            try {
+                const res = await fetch(`/api/nodes/${activeServer.value.token}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authHeader.value ? { Authorization: authHeader.value } : {})
+                    },
+                    body: JSON.stringify({ label: newLabel || null })
+                });
+                if (!res.ok) throw new Error('更新失败');
+                await fetchNodes();
+            } catch (err) {
+                alert(err.message || '更新失败');
+            }
+        };
+
+        const deleteNode = async () => {
+            if (!isAuthed.value || !activeServer.value) return;
+            if (!confirm('确认移除该节点？')) return;
+            try {
+                const res = await fetch(`/api/nodes/${activeServer.value.token}`, {
+                    method: 'DELETE',
+                    headers: {
+                        ...(authHeader.value ? { Authorization: authHeader.value } : {})
+                    }
+                });
+                if (!res.ok) throw new Error('删除失败');
+                closeDetail();
+                await fetchNodes();
+            } catch (err) {
+                alert(err.message || '删除失败');
             }
         };
 
@@ -547,6 +597,8 @@ createApp({
             overallHealth,
             overallHealthClass,
             copyNotice,
+            updateLabel,
+            deleteNode,
             showLoginModal,
             loginUsername,
             loginPassword,

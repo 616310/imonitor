@@ -57,12 +57,14 @@ struct NodeResponse {
     created_at: f64,
     last_seen: Option<f64>,
     status: String,
+    token: String,
     meta: Option<Value>,
     metrics: Option<Value>,
 }
 
 struct NodeRaw {
     id: String,
+    token: String,
     label: Option<String>,
     hostname: Option<String>,
     ip_address: Option<String>,
@@ -93,6 +95,7 @@ impl NodeRaw {
         };
         Ok(NodeResponse {
             id: self.id,
+            token: self.token,
             label: self.label,
             hostname: self.hostname,
             ip_address: self.ip_address,
@@ -212,7 +215,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/nodes/reserve", post(reserve_node))
         .route("/api/login", post(login_handler))
         .route("/api/report", post(report_handler))
-        .route("/api/nodes/:token", delete(delete_node_handler))
+        .route("/api/nodes/:token", delete(delete_node_handler).patch(update_node_handler))
         .nest_service("/assets", ServeDir::new(state.public_dir.as_ref()))
         .with_state(state.clone());
 
@@ -366,6 +369,22 @@ async fn delete_node_handler(
     Ok(Json(json!({"status": "deleted"})))
 }
 
+#[derive(Deserialize)]
+struct UpdateNodeRequest {
+    label: Option<String>,
+}
+
+async fn update_node_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(token): AxumPath<String>,
+    Json(payload): Json<UpdateNodeRequest>,
+) -> Result<Json<Value>, AppError> {
+    require_auth(&headers, &state.settings)?;
+    update_node_label(&state.data_dir.join("imonitor.db"), &token, payload.label.as_deref())?;
+    Ok(Json(json!({"status": "updated"})))
+}
+
 async fn login_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -410,6 +429,7 @@ fn list_nodes(db_path: &Path, offline_timeout: u64) -> Result<Vec<NodeResponse>,
             ip_address: row.get("ip_address")?,
             created_at: row.get("created_at")?,
             last_seen: row.get("last_seen")?,
+            token: row.get("token")?,
             meta: row.get("meta")?,
             metrics: row.get("metrics")?,
         })
@@ -474,6 +494,18 @@ fn update_node_metrics(
 fn delete_node(db_path: &Path, token: &str) -> Result<(), AppError> {
     let conn = Connection::open(db_path)?;
     let rows = conn.execute("DELETE FROM nodes WHERE token = ?", params![token])?;
+    if rows == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+fn update_node_label(db_path: &Path, token: &str, label: Option<&str>) -> Result<(), AppError> {
+    let conn = Connection::open(db_path)?;
+    let rows = conn.execute(
+        "UPDATE nodes SET label = ? WHERE token = ?",
+        params![label, token],
+    )?;
     if rows == 0 {
         return Err(AppError::NotFound);
     }
