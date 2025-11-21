@@ -19,7 +19,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
-use tokio::{fs, net::TcpListener, signal};
+use tokio::{fs, net::TcpListener, signal, sync::RwLock};
 use tower_http::services::ServeDir;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -40,6 +40,7 @@ struct AppState {
     public_dir: Arc<PathBuf>,
     scripts_dir: Arc<PathBuf>,
     data_dir: Arc<PathBuf>,
+    app_settings: Arc<AppSettings>,
 }
 
 #[derive(Serialize)]
@@ -197,6 +198,8 @@ async fn main() -> anyhow::Result<()> {
         admin_pass: std::env::var("IMONITOR_ADMIN_PASS").ok(),
     };
 
+    let app_settings = Arc::new(load_app_settings(&data_dir.join("settings.json")).await?);
+
     init_db(&data_dir.join("imonitor.db"))?;
 
     let state = AppState {
@@ -204,6 +207,7 @@ async fn main() -> anyhow::Result<()> {
         public_dir: Arc::new(public_dir),
         scripts_dir: Arc::new(scripts_dir),
         data_dir: Arc::new(data_dir),
+        app_settings,
     };
 
     let app = Router::new()
@@ -216,6 +220,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/login", post(login_handler))
         .route("/api/report", post(report_handler))
         .route("/api/nodes/:token", delete(delete_node_handler).patch(update_node_handler))
+        .route("/api/settings", get(get_settings_handler))
+        .route("/api/settings/background", post(update_background_handler))
         .nest_service("/assets", ServeDir::new(state.public_dir.as_ref()))
         .with_state(state.clone());
 
@@ -488,6 +494,17 @@ fn update_node_metrics(
     if rows == 0 {
         return Err(AppError::NotFound);
     }
+    // 清理同一主控下重复的节点（同 hostname 或 IP）
+    if !hostname.is_empty() || !ip_address.is_empty() {
+        conn.execute(
+            "DELETE FROM nodes WHERE token != ? AND (
+                (hostname IS NOT NULL AND hostname = ?)
+                OR
+                (ip_address IS NOT NULL AND ip_address = ?)
+            )",
+            params![token, hostname, ip_address],
+        )?;
+    }
     Ok(())
 }
 
@@ -547,4 +564,72 @@ fn require_auth(headers: &HeaderMap, settings: &Settings) -> Result<(), AppError
     } else {
         Err(AppError::Unauthorized)
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct PersistedSettings {
+    background_url: Option<String>,
+}
+
+struct AppSettings {
+    path: PathBuf,
+    background_url: RwLock<String>,
+}
+
+async fn load_app_settings(path: &Path) -> Result<AppSettings, AppError> {
+    let default_bg = "https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop".to_string();
+    let data = if path.exists() {
+        fs::read(path).await?
+    } else {
+        Vec::new()
+    };
+    let persisted: PersistedSettings = if data.is_empty() {
+        PersistedSettings {
+            background_url: Some(default_bg.clone()),
+        }
+    } else {
+        serde_json::from_slice(&data).map_err(AppError::Serde)?
+    };
+    Ok(AppSettings {
+        path: path.to_path_buf(),
+        background_url: RwLock::new(
+            persisted
+                .background_url
+                .unwrap_or_else(|| default_bg.clone()),
+        ),
+    })
+}
+
+async fn save_app_settings(app_settings: &AppSettings) -> Result<(), AppError> {
+    let bg = app_settings.background_url.read().await.clone();
+    let payload = PersistedSettings {
+        background_url: Some(bg),
+    };
+    let bytes = serde_json::to_vec_pretty(&payload)?;
+    fs::write(&app_settings.path, bytes).await?;
+    Ok(())
+}
+
+async fn get_settings_handler(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+    let bg = state.app_settings.background_url.read().await.clone();
+    Ok(Json(json!({ "background_url": bg })))
+}
+
+#[derive(Deserialize)]
+struct UpdateBackgroundRequest {
+    background_url: String,
+}
+
+async fn update_background_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateBackgroundRequest>,
+) -> Result<Json<Value>, AppError> {
+    require_auth(&headers, &state.settings)?;
+    {
+        let mut bg = state.app_settings.background_url.write().await;
+        *bg = payload.background_url.clone();
+    }
+    save_app_settings(&state.app_settings).await?;
+    Ok(Json(json!({"status": "updated"})))
 }

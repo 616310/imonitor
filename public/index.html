@@ -10,11 +10,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
-            background: url('https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop') no-repeat center center fixed;
+            background: var(--bg-url, url('https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop')) no-repeat center center fixed;
             background-size: cover;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             -webkit-font-smoothing: antialiased;
             color: #1f2937;
+            transition: background-image 0.6s ease;
         }
         .glass-panel {
             background: rgba(255, 255, 255, 0.65);
@@ -76,6 +77,10 @@
             <button v-if="isAuthed" @click="openAddModal" class="bg-white hover:bg-gray-50 text-gray-800 px-4 py-2.5 rounded-full font-bold text-sm transition-all shadow-md border border-gray-100 flex items-center gap-2 active:scale-95">
                 <i class="ph-bold ph-plus-circle text-lg text-blue-500"></i>
                 <span>节点接入</span>
+            </button>
+            <button v-if="isAuthed" @click="openBgModal" class="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold flex items-center gap-2 transition">
+                <i class="ph-bold ph-image"></i>
+                背景
             </button>
             <button v-if="isAuthed" @click="logout" class="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold flex items-center gap-2 transition">
                 <i class="ph-bold ph-sign-out"></i>
@@ -327,6 +332,26 @@
             </div>
         </div>
     </transition>
+
+    <transition name="pop">
+        <div v-if="showBgModal" class="fixed inset-0 z-50 flex items-center justify-center modal-mask p-4" @click.self="closeBgModal">
+            <div class="bg-white w-full max-w-sm rounded-[1.75rem] shadow-2xl p-7">
+                <div class="text-center mb-5">
+                    <div class="w-14 h-14 bg-gray-900 text-white rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl"><i class="ph-bold ph-image"></i></div>
+                    <h3 class="text-xl font-bold text-gray-900">更换背景</h3>
+                    <p class="text-gray-500 text-sm mt-1">输入图片链接（建议高分辨率）。</p>
+                </div>
+                <div class="space-y-3 mb-4">
+                    <input type="text" v-model="bgInput" placeholder="https://..." class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring focus:ring-blue-200" />
+                    <div v-if="bgNotice" class="text-sm text-green-600">{{ bgNotice }}</div>
+                    <button @click="saveBackground" class="w-full bg-gray-900 text-white rounded-xl py-3 font-semibold hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                        <i class="ph-bold ph-check"></i> 保存背景
+                    </button>
+                </div>
+                <button @click="closeBgModal" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl transition">关闭</button>
+            </div>
+        </div>
+    </transition>
 </div>
 
 <script>
@@ -352,6 +377,10 @@ createApp({
         const loginPassword = ref('');
         const loginError = ref('');
         const authHeader = ref(localStorage.getItem('imonitorAuth') || '');
+        const backgroundUrl = ref('');
+        const showBgModal = ref(false);
+        const bgInput = ref('');
+        const bgNotice = ref('');
 
         const fetchNodes = async () => {
             try {
@@ -363,6 +392,21 @@ createApp({
                 // 仅展示已上报过的节点，过滤掉“待接入”占位
                 servers.value = nodes.filter(node => node.status !== 'pending');
                 refreshActiveServer();
+            } catch (err) {
+                console.error(err);
+            }
+        };
+
+        const fetchSettings = async () => {
+            try {
+                const res = await fetch('/api/settings');
+                if (!res.ok) throw new Error('加载失败');
+                const data = await res.json();
+                if (data.background_url) {
+                    backgroundUrl.value = data.background_url;
+                    document.body.style.setProperty('--bg-url', `url('${backgroundUrl.value}')`);
+                    bgInput.value = backgroundUrl.value;
+                }
             } catch (err) {
                 console.error(err);
             }
@@ -435,6 +479,44 @@ createApp({
         const closeAddModal = () => {
             showAddModal.value = false;
             pendingLabel.value = '';
+        };
+
+        const openBgModal = () => {
+            if (!isAuthed.value) {
+                openLoginModal();
+                return;
+            }
+            bgNotice.value = '';
+            showBgModal.value = true;
+            bgInput.value = backgroundUrl.value;
+        };
+
+        const closeBgModal = () => {
+            showBgModal.value = false;
+        };
+
+        const saveBackground = async () => {
+            if (!isAuthed.value) {
+                openLoginModal();
+                return;
+            }
+            try {
+                const res = await fetch('/api/settings/background', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authHeader.value ? { Authorization: authHeader.value } : {})
+                    },
+                    body: JSON.stringify({ background_url: bgInput.value })
+                });
+                if (!res.ok) throw new Error('保存失败');
+                backgroundUrl.value = bgInput.value;
+                document.body.style.setProperty('--bg-url', `url('${backgroundUrl.value}')`);
+                bgNotice.value = '背景已更新';
+                setTimeout(() => (bgNotice.value = ''), 1500);
+            } catch (err) {
+                bgNotice.value = err.message || '保存失败';
+            }
         };
 
         const reserveNode = async () => {
@@ -639,6 +721,7 @@ createApp({
             fetchNodes();
             timerHandle.value = setInterval(fetchNodes, 5000);
             verifyStoredAuth();
+            fetchSettings();
         });
 
         return {
@@ -669,6 +752,14 @@ createApp({
             saveLabel,
             requestDelete,
             cancelDelete,
+            fetchSettings,
+            backgroundUrl,
+            showBgModal,
+            bgInput,
+            bgNotice,
+            openBgModal,
+            closeBgModal,
+            saveBackground,
             deleteNode,
             showLoginModal,
             loginUsername,
