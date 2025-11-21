@@ -9,6 +9,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        [v-cloak] { display: none; }
         body {
             background: var(--bg-url, url('https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop')) no-repeat center center fixed;
             background-size: cover;
@@ -50,7 +51,7 @@
     </style>
 </head>
 <body class="antialiased min-h-screen pb-10">
-<div id="app" class="min-h-screen flex flex-col items-center py-6 px-4 sm:px-8 md:py-10">
+<div id="app" v-cloak class="min-h-screen flex flex-col items-center py-6 px-4 sm:px-8 md:py-10">
     <header class="w-full max-w-7xl flex justify-between items-center mb-10 glass-panel rounded-2xl px-6 py-4 z-20 sticky top-4">
         <div class="flex items-center gap-4">
             <div class="w-10 h-10 bg-black/80 rounded-xl flex items-center justify-center text-white shadow-lg">
@@ -183,7 +184,7 @@
                                 <span class="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold uppercase tracking-wider">{{ activeServer.data.arch }}</span>
                                 <span class="text-sm font-medium text-gray-500">{{ activeServer.data.os_full }}</span>
                             </div>
-                            <div class="text-xs text-gray-500 mt-2">IP: {{ activeServer.ip || '未知' }} · 上次同步 {{ formatTime(activeServer.last_seen) }}</div>
+                            <div class="text-xs text-gray-500 mt-2">上次同步 {{ formatTime(activeServer.last_seen) }}</div>
                         </div>
                     </div>
                     <button @click="closeDetail" class="bg-gray-100 hover:bg-gray-200 w-9 h-9 rounded-full flex items-center justify-center transition-colors">
@@ -760,7 +761,7 @@ createApp({
 
         onMounted(() => {
             fetchNodes();
-            timerHandle.value = setInterval(fetchNodes, 5000);
+            timerHandle.value = setInterval(fetchNodes, 3000);
             verifyStoredAuth();
             fetchSettings();
         });

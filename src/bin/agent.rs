@@ -408,17 +408,34 @@ fn read_cpu_info() -> (String, u64) {
     if let Ok(file) = file {
         let mut model = "Unknown CPU".to_string();
         let mut cores = 0u64;
+        let mut hypervisor = false;
+        let mut hyper_vendor = String::new();
         for line in BufReader::new(file).lines().flatten() {
             if line.starts_with("model name") && model == "Unknown CPU" {
                 if let Some(val) = line.split(':').nth(1) {
                     model = val.trim().to_string();
                 }
+            } else if line.starts_with("flags") && line.contains("hypervisor") {
+                hypervisor = true;
             } else if line.starts_with("processor") {
                 cores += 1;
+            } else if line.starts_with("Hypervisor vendor") {
+                if let Some(val) = line.split(':').nth(1) {
+                    hyper_vendor = val.trim().to_string();
+                }
             }
         }
         if cores == 0 {
             cores = 1;
+        }
+        if hypervisor {
+            let mut label = "虚拟 CPU".to_string();
+            if !hyper_vendor.is_empty() {
+                label.push_str(&format!(" ({})", hyper_vendor));
+            } else {
+                label.push_str(&format!(" / {}", model));
+            }
+            model = label;
         }
         return (model, cores);
     }
