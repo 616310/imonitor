@@ -2,53 +2,57 @@
 
 **语言 / Language** · [中文](README.md) | [English](README.en.md)
 
-iMonitor 是一套开箱即用的服务器资源监控平台，包含 FastAPI 控制中心、Vue 3 + Tailwind UI、**极轻量 Rust Agent（二进制，免 Python）** 以及一键安装脚本。支持本机/远程节点统一展示 CPU、内存、磁盘、负载、网络速率等指标，并可随时下发新的接入令牌。
+iMonitor 是一套开箱即用的服务器资源监控平台，后端 Rust（Axum + SQLite），前端 Vue + Tailwind，极轻量 Rust Agent（静态二进制，免依赖），配套“一键脚本”和交互式 `i-mo` 管理工具。可统一展示 CPU/内存/磁盘/负载/网络等指标，并在线下发接入令牌。
 
-## 架构组成
-- **FastAPI 控制中心 (`app/`)**：管理节点元数据与指标，提供 `/api/nodes`、`/api/report`、`/install.sh` 等接口。
-- **Vue 前端 (`public/index.html`)**：复刻 iOS 玻璃拟态风格的看板，实时轮询节点状态并提供详情抽屉和“节点接入”弹窗。
-- **Agent (`scripts/agent`)**：静态编译的 Rust 可执行文件，直接读取 `/proc` 与文件系统获取指标，无需 Python/依赖，默认每 5 秒上报。
-- **一键安装脚本 (`scripts/install.sh`)**：下载 Agent 与 musl loader（如目标机缺失），写入 `systemd` 服务 `imonitor-agent.service`，在低配/旧系统上也可部署。
+## 功能与组件
+- **控制面板**：`src/main.rs`（Axum），静态文件 `public/`。
+- **Agent**：`scripts/agent`，读取 `/proc` 与文件系统，默认 3 秒上报。
+- **一键接入**：`/install.sh` 会下发 Agent + musl loader，并生成 `imonitor-agent` systemd。
+- **交互式 CLI (`i-mo`)**：
+  - 面板侧：安装/更新/卸载面板，查看状态/日志，启动/停止/重启，修改端口/公共地址/管理员账号，查看当前设置。
+  - Agent 侧：查看状态/日志，启动/停止/重启，查看设置，卸载 Agent。
 
-## 快速部署主控（无编译）
+## 快速开始
+### 1）安装面板（推荐用 `i-mo`）
+```bash
+curl -fsSL https://raw.githubusercontent.com/616310/imonitor/main/scripts/i-mo -o /usr/local/bin/i-mo
+chmod +x /usr/local/bin/i-mo
+sudo i-mo          # 选择“全自动安装主控面板”，按提示填端口/公共地址/管理员账号
+```
+安装完成后默认目录 `/opt/imonitor-lite`，服务名 `imonitor-lite`，可通过 `i-mo` 管理。
+
+### 2）接入新节点
+1. 打开控制台点击“节点接入”，复制生成的命令。
+2. 在目标服务器（root）执行，例如：
+   ```bash
+   curl -fsSL https://your-domain/install.sh | bash -s -- --token=xxxx --endpoint=https://your-domain
+   ```
+   安装时会自动写入 `/usr/local/bin/i-mo`（Agent 管理菜单）。
+3. `imonitor-agent` 服务启动后数秒即可在面板看到数据。
+
+### 3）命令行管理
+- **面板**：`sudo i-mo`（可选角色选择），支持启动/停止/重启、改端口/地址/管理员、查看设置、更新版本（git pull + 重启）、卸载。
+- **Agent**：`sudo i-mo`（在安装了 Agent 的机器），支持启动/停止/重启、查看设置、卸载。
+
+## 手动编译/运行（可选）
 ```bash
 git clone https://github.com/616310/imonitor.git
 cd imonitor
-sudo bash scripts/setup.sh    # 按提示填写公开 URL，可保留默认
-```
-脚本会复制当前目录到 `/opt/imonitor-lite`，创建 `imonitor-lite` systemd 服务并启动。默认监听 `0.0.0.0:8080`，如有反代请在提示里填写公网访问的 `IMONITOR_PUBLIC_URL`。
-环境变量：`IMONITOR_BIND`（默认 `[::]:8080` 可同时接收 IPv4/IPv6，端口需与公开 URL 一致）、`IMONITOR_PUBLIC_URL`（需带 http/https）、`IMONITOR_OFFLINE_TIMEOUT`。
-
-## 本地部署
-```bash
 cargo build --release
-./target/release/imonitor
+./target/release/imonitor   # 本地调试
 ```
-浏览器访问 `http://服务器IP:8080`。首次默认只有本机，可在 UI 中点“节点接入”生成接入命令。
 
-## 接入新服务器
-1. 在控制台点击“节点接入”，生成包含 `token` 的命令。
-2. 将命令复制到目标服务器（需要 root 权限）执行，例如：
-   ```bash
-   curl -fsSL https://monitor.example.com/install.sh | bash -s -- --token=xxxx --endpoint=https://monitor.example.com
-   ```
-3. 安装完成后 `imonitor-agent.service` 会常驻运行，数秒后即可在面板看到实时指标。
-
-## systemd & Nginx 示例
-- `imonitor.service`：托管 FastAPI，监听 `0.0.0.0:8080`。
-- `imonitor-agent.service`：每个节点本地的指标采集服务。
-- `monitor.example.com` Nginx 配置：80 强制跳转 HTTPS，443 反代到本地 8080，使用 Let’s Encrypt 证书。
+## 主要环境变量（面板）
+- `IMONITOR_PUBLIC_URL`：外网访问地址（含协议）。
+- `IMONITOR_BIND`：监听地址，默认 `[::]:8080`。
+- `IMONITOR_OFFLINE_TIMEOUT`：离线判定秒数，默认 30。
 
 ## 实用命令
 ```bash
-# 查看控制中心日志
-journalctl -u imonitor -f
-
-# 查看某台服务器的 Agent 状态
+# 面板日志
+journalctl -u imonitor-lite -f
+# Agent 日志
 journalctl -u imonitor-agent -f
-
-# 清理/重置节点
-curl -X DELETE https://monitor.example.com/api/nodes/<token>
 ```
 
-欢迎根据实际需求扩展数据库、权限控制或图表展示。
+欢迎根据需求扩展数据库、权限或图表。***
