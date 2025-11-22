@@ -73,6 +73,25 @@ normalize_host() {
   echo "$host"
 }
 
+ensure_binary() {
+  local bin="$SOURCE_DIR/bin/imonitor"
+  if [[ -x "$bin" ]]; then
+    return
+  fi
+  echo "[download] 未找到 bin/imonitor，尝试从仓库下载预编译二进制..."
+  local tmp_bin
+  tmp_bin="$(mktemp -t imonitor-bin.XXXXXX)"
+  local raw_url="${REPO_URL%.git}/raw/main/bin/imonitor"
+  if curl -fSL --retry 3 --retry-delay 1 "$raw_url" -o "$tmp_bin"; then
+    mkdir -p "$SOURCE_DIR/bin"
+    install -m 0755 "$tmp_bin" "$bin"
+    rm -f "$tmp_bin"
+    return
+  fi
+  echo "[download] 获取 bin/imonitor 失败，请使用包含预编译二进制的发布包，或手动将可执行文件放到 $bin 后重试" >&2
+  exit 1
+}
+
 # 定位源码目录：优先使用当前目录的上级（已在仓库内运行），否则自动下载仓库（支持无 git）
 SCRIPT_SELF="${BASH_SOURCE[0]:-}"
 SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_SELF:-.}")" 2>/dev/null && pwd || pwd)"
@@ -90,11 +109,8 @@ if [[ ! -x "$SOURCE_DIR/bin/imonitor" ]]; then
     curl -fsSL "${REPO_URL%.*}/archive/refs/heads/main.tar.gz" | tar xz -C "$TMP_CLONE"
     SOURCE_DIR="$TMP_CLONE/imonitor-main"
   fi
-  if [[ ! -x "$SOURCE_DIR/bin/imonitor" ]]; then
-    echo "未找到可执行文件 $SOURCE_DIR/bin/imonitor ，请先在源码根目录构建：cargo build --release" >&2
-    exit 1
-  fi
 fi
+ensure_binary
 
 INSTALL_DIR="/opt/imonitor-lite"
 RUN_USER="imonitor"
