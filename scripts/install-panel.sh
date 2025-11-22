@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "[error] 安装失败 (行 ${LINENO}): ${BASH_COMMAND}" >&2' ERR
 
 # 独立的主控面板安装脚本（可直接 curl | bash，一键自拉代码）。
 
@@ -54,16 +55,26 @@ install_git_if_needed() {
 }
 
 detect_public_addr() {
-  local addr=""
   if ! command -v ip >/dev/null 2>&1; then
     echo "127.0.0.1"
-    return
+    return 0
   fi
-  addr=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1 || true)
-  if [[ -n "$addr" ]]; then echo "[$addr]"; return; fi
-  addr=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1 || true)
-  if [[ -n "$addr" ]]; then echo "$addr"; return; fi
-  echo "127.0.0.1"
+  local addr
+  addr=$(
+    set +e +o pipefail
+    v6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+    if [[ -n "$v6" ]]; then
+      echo "[$v6]"
+      exit 0
+    fi
+    v4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+    if [[ -n "$v4" ]]; then
+      echo "$v4"
+      exit 0
+    fi
+    echo "127.0.0.1"
+  )
+  echo "$addr"
 }
 
 normalize_host() {
