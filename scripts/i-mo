@@ -230,16 +230,29 @@ uninstall_panel() {
 
 update_panel() {
   require_root
-  if [[ ! -d "$CTRL_DIR/.git" ]]; then
-    echo "未找到 $CTRL_DIR/.git，无法更新" >&2
-    return
+  local tmp_dir src_dir tarball
+  tmp_dir=$(mktemp -d)
+  tarball="${REPO_URL%.git}/archive/refs/heads/main.tar.gz"
+  echo "下载最新版本..."
+  if ! curl -fSL --retry 3 --retry-delay 1 "$tarball" -o "$tmp_dir/main.tar.gz"; then
+    echo "下载失败，无法更新" >&2
+    rm -rf "$tmp_dir"
+    return 1
   fi
-  git -C "$CTRL_DIR" pull --rebase
-  (cd "$CTRL_DIR" && cargo build --release --target x86_64-unknown-linux-musl || true)
-  if [[ -f "$CTRL_DIR/target/x86_64-unknown-linux-musl/release/imonitor" ]]; then
-    cp "$CTRL_DIR/target/x86_64-unknown-linux-musl/release/imonitor" "$CTRL_DIR/bin/imonitor"
+  tar -xzf "$tmp_dir/main.tar.gz" -C "$tmp_dir"
+  src_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "imonitor*" | head -n1)
+  if [[ -z "$src_dir" ]]; then
+    echo "解压失败，未找到源码目录" >&2
+    rm -rf "$tmp_dir"
+    return 1
   fi
+  echo "同步文件到 $CTRL_DIR（保留 data/）..."
+  tar cf - --exclude='data' --exclude='.git' --exclude='target' -C "$src_dir" . | tar xf - -C "$CTRL_DIR"
+  chown -R imonitor:imonitor "$CTRL_DIR" 2>/dev/null || true
+  rm -rf "$tmp_dir"
+  systemctl daemon-reload
   ctrl_restart
+  echo "更新完成"
 }
 
 choose_role() {
