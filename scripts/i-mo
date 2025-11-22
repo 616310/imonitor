@@ -40,18 +40,48 @@ ctrl_env() {
   grep -o "^Environment=${key}=.*" "$CTRL_UNIT" | head -n1 | sed 's/^Environment='"$key"'=//;s/"//g'
 }
 
+ctrl_public_url() {
+  ctrl_env "IMONITOR_PUBLIC_URL"
+}
+
 ctrl_bind_port() {
   local bind
   bind=$(ctrl_env "IMONITOR_BIND")
-  # formats like [::]:8080 or 0.0.0.0:8080
+  [[ -z "$bind" ]] && return
   echo "${bind##*:}" | tr -d ']'
+}
+
+rewrite_public_url_port() {
+  local url="$1" port="$2"
+  [[ -z "$url" ]] && url="http://127.0.0.1:${port}"
+  local scheme="http" rest host path
+  if [[ "$url" == *"://"* ]]; then
+    scheme="${url%%://*}"
+    rest="${url#*://}"
+  else
+    rest="$url"
+  fi
+  host="${rest%%/*}"
+  path="${rest#"$host"}"
+  [[ "$path" == "$rest" ]] && path=""
+  if [[ "$host" == \[*\]* ]]; then
+    local closing="${host%%]*}"
+    local closing_len=${#closing}
+    local suffix="${host:$((closing_len+1))}"
+    if [[ "$suffix" == :* ]]; then
+      host="${host:0:$((closing_len+1))}"
+    fi
+  else
+    host="${host%%:*}"
+  fi
+  echo "${scheme}://${host}:${port}${path}"
 }
 
 ctrl_status() {
   local state since host port
   state=$(systemctl is-active "$SERVICE_CTRL" 2>/dev/null || true)
   since=$(systemctl show "$SERVICE_CTRL" -p ActiveEnterTimestamp --value 2>/dev/null)
-  host=$(ctrl_env "IMONITOR_PUBLIC_URL")
+  host=$(ctrl_public_url)
   port=$(ctrl_bind_port)
   [[ -z "$host" && -n "$port" ]] && host="http://127.0.0.1:${port}"
   echo "面板状态：${state:-unknown}"
@@ -73,10 +103,10 @@ ctrl_restart() { systemctl restart "$SERVICE_CTRL" && ctrl_status; }
 
 ctrl_settings() {
   local port host admin_user admin_pass
-  port=$(grep -o "IMONITOR_BIND=.*:" "$CTRL_UNIT" | head -n1 | sed 's/.*://;s/].*//;s/\"//g')
-  host=$(grep -o "IMONITOR_PUBLIC_URL=.*" "$CTRL_UNIT" | head -n1 | sed 's/.*=//;s/\"//g')
-  admin_user=$(grep -o "IMONITOR_ADMIN_USER=.*" "$CTRL_UNIT" | head -n1 | sed 's/.*=//;s/\"//g')
-  admin_pass=$(grep -o "IMONITOR_ADMIN_PASS=.*" "$CTRL_UNIT" | head -n1 | sed 's/.*=//;s/\"//g')
+  port=$(ctrl_bind_port)
+  host=$(ctrl_public_url)
+  admin_user=$(ctrl_env "IMONITOR_ADMIN_USER")
+  admin_pass=$(ctrl_env "IMONITOR_ADMIN_PASS")
   echo "当前设置："
   echo "  端口: ${port:-未知}"
   echo "  公共地址: ${host:-未知}"
@@ -86,10 +116,16 @@ ctrl_settings() {
 
 ctrl_set_port() {
   require_root
-  local port
-  port=$(prompt "新的服务端口" "8080")
+  local port default_port
+  default_port=$(ctrl_bind_port)
+  port=$(prompt "新的服务端口" "${default_port:-8080}")
   local bind="[::]:${port}"
   sed -i "s?^Environment=IMONITOR_BIND=.*?Environment=IMONITOR_BIND=${bind}?g" "$CTRL_UNIT"
+  local cur_public
+  cur_public=$(ctrl_public_url)
+  local new_public
+  new_public=$(rewrite_public_url_port "$cur_public" "$port")
+  sed -i "s?^Environment=IMONITOR_PUBLIC_URL=.*?Environment=IMONITOR_PUBLIC_URL=${new_public}?g" "$CTRL_UNIT"
   echo "端口已更新为 ${port}"
   systemctl daemon-reload
   ctrl_restart
@@ -162,8 +198,15 @@ uninstall_agent() {
   systemctl disable --now "${SERVICE_AGENT}.service" 2>/dev/null || true
   rm -f /etc/systemd/system/${SERVICE_AGENT}.service
   systemctl daemon-reload
-  rm -rf /opt/imonitor-agent
-  echo "Agent 已卸载"
+  local agent_dir="/opt/imonitor-agent"
+  local loader_sys="/lib/ld-musl-x86_64.so.1"
+  local loader_pkg="${agent_dir}/ld-musl-x86_64.so.1"
+  if [[ -f "$loader_sys" && -f "$loader_pkg" ]] && cmp -s "$loader_sys" "$loader_pkg"; then
+    rm -f "$loader_sys"
+  fi
+  rm -rf "$agent_dir"
+  rm -f /usr/local/bin/i-mo
+  echo "Agent 已彻底卸载（目录、systemd、i-mo 清理完成）"
 }
 
 uninstall_panel() {
@@ -171,7 +214,9 @@ uninstall_panel() {
   systemctl disable --now "${SERVICE_CTRL}.service" 2>/dev/null || true
   rm -f /etc/systemd/system/${SERVICE_CTRL}.service
   systemctl daemon-reload
-  echo "已卸载面板服务（文件未删除，目录：$CTRL_DIR）"
+  rm -rf "$CTRL_DIR"
+  rm -f /usr/local/bin/i-mo
+  echo "已彻底卸载面板（目录、systemd、i-mo 清理完成）"
 }
 
 update_panel() {
