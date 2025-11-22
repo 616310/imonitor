@@ -105,7 +105,10 @@ detect_alt_addr() {
   else
     [[ -n "$v6_public" ]] && alt="[$v6_public]"
   fi
-  [[ -n "$alt" ]] && echo "$alt"
+  if [[ -n "$alt" ]]; then
+    echo "$alt"
+  fi
+  return 0
 }
 
 normalize_host() {
