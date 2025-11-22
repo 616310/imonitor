@@ -95,19 +95,22 @@ detect_public_addr() {
 
 detect_alt_addr() {
   if ! command -v ip >/dev/null 2>&1; then
-    return
+    return 0
   fi
   local primary="$1" v4_public v6_public alt=""
-  v4_public=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do is_private_v4 "$ip" || { echo "$ip"; break; }; done)
-  v6_public=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-  if [[ "$primary" == \[*\]* ]]; then
-    [[ -n "$v4_public" ]] && alt="$v4_public"
-  else
-    [[ -n "$v6_public" ]] && alt="[$v6_public]"
-  fi
-  if [[ -n "$alt" ]]; then
-    echo "$alt"
-  fi
+  {
+    set +e +o pipefail
+    v4_public=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do is_private_v4 "$ip" || { echo "$ip"; break; }; done)
+    v6_public=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+    if [[ "$primary" == \[*\]* ]]; then
+      if [[ -n "$v4_public" ]]; then alt="$v4_public"; fi
+    else
+      if [[ -n "$v6_public" ]]; then alt="[$v6_public]"; fi
+    fi
+    if [[ -n "$alt" ]]; then
+      echo "$alt"
+    fi
+  }
   return 0
 }
 
