@@ -70,14 +70,14 @@ detect_public_addr() {
   local addr
   addr=$(
     set +e +o pipefail
-    v6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-    if [[ -n "$v6" ]]; then
-      echo "[$v6]"
-      exit 0
-    fi
     v4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
     if [[ -n "$v4" ]]; then
       echo "$v4"
+      exit 0
+    fi
+    v6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+    if [[ -n "$v6" ]]; then
+      echo "[$v6]"
       exit 0
     fi
     echo "127.0.0.1"

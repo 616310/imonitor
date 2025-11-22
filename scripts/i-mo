@@ -34,6 +34,22 @@ line_in_file() {
   fi
 }
 
+detect_ip() {
+  local prefer="$1" ip4 ip6
+  if command -v ip >/dev/null 2>&1; then
+    ip4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+    ip6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  fi
+  if [[ "$prefer" == "v6" ]]; then
+    [[ -n "$ip6" ]] && echo "[$ip6]" && return
+    [[ -n "$ip4" ]] && echo "$ip4" && return
+  else
+    [[ -n "$ip4" ]] && echo "$ip4" && return
+    [[ -n "$ip6" ]] && echo "[$ip6]" && return
+  fi
+  echo "127.0.0.1"
+}
+
 ctrl_env() {
   local key="$1"
   [[ -f "$CTRL_UNIT" ]] || return
@@ -142,15 +158,13 @@ ctrl_set_bind_mode() {
   echo " 3) 仅 IPv6"
   read -r -p "> " choice
   case "$choice" in
-    2) bind="0.0.0.0:${port}"; host_default="http://127.0.0.1:${port}" ;;
-    3) bind="[::]:${port}"; host_default="http://[::1]:${port}" ;;
-    *) bind="[::]:${port}"; host_default="http://127.0.0.1:${port}" ;;
+    2) bind="0.0.0.0:${port}"; host_default=$(detect_ip "v4"); host_default="http://${host_default}:${port}" ;;
+    3) bind="[::]:${port}"; host_default=$(detect_ip "v6"); host_default="http://${host_default}:${port}" ;;
+    *) bind="[::]:${port}"; host_default=$(detect_ip "v4"); host_default="http://${host_default}:${port}" ;;
   esac
   line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${bind}"
   cur_public=$(ctrl_public_url)
-  if [[ -z "$cur_public" ]]; then
-    line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${host_default}"
-  fi
+  line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${host_default}"
   echo "监听已更新为 ${bind}"
   systemctl daemon-reload
   ctrl_restart
