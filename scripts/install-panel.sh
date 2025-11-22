@@ -40,6 +40,13 @@ prompt_secret() {
   fi
 }
 
+generate_random_pass() {
+  (
+    set +e +o pipefail
+    head -c 64 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16
+  )
+}
+
 install_git_if_needed() {
   if command -v git >/dev/null 2>&1; then
     return
@@ -141,7 +148,7 @@ HOST_NORMALIZED=$(normalize_host "$ADDR_INPUT")
 ADMIN_USER=$(prompt_default "管理员用户名" "${ADMIN_USER}")
 ADMIN_PASS_INPUT=$(prompt_secret "管理员密码" "")
 if [[ -z "$ADMIN_PASS_INPUT" ]]; then
-  ADMIN_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+  ADMIN_PASS=$(generate_random_pass)
   echo "生成的管理员密码：$ADMIN_PASS"
 else
   ADMIN_PASS="$ADMIN_PASS_INPUT"
