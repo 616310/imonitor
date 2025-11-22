@@ -85,10 +85,10 @@ detect_public_addr() {
   v6_any=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
   if [[ -n "$v4_public" ]]; then
     echo "$v4_public"
-  elif [[ -n "$v4_any" ]]; then
-    echo "$v4_any"
   elif [[ -n "$v6_any" ]]; then
     echo "[$v6_any]"
+  elif [[ -n "$v4_any" ]]; then
+    echo "$v4_any"
   else
     echo "127.0.0.1"
   fi
@@ -98,14 +98,16 @@ detect_alt_addr() {
   if ! command -v ip >/dev/null 2>&1; then
     return
   fi
-  local primary="$1" v4 v6
-  v4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-  v6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  local primary="$1" v4_public v4_any v6_any alt=""
+  v4_public=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do is_private_v4 "$ip" || { echo "$ip"; break; }; done)
+  v4_any=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  v6_any=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
   if [[ "$primary" == \[*\]* ]]; then
-    [[ -n "$v4" ]] && echo "$v4"
+    if [[ -n "$v4_public" ]]; then alt="$v4_public"; elif [[ -n "$v4_any" ]]; then alt="$v4_any"; fi
   else
-    [[ -n "$v6" ]] && echo "[$v6]"
+    if [[ -n "$v6_any" ]]; then alt="[$v6_any]"; fi
   fi
+  [[ -n "$alt" ]] && echo "$alt"
 }
 
 normalize_host() {
