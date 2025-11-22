@@ -414,6 +414,17 @@ MENU
 }
 
 main() {
+  if [[ "${1:-}" == "--status" || "${1:-}" == "-s" ]]; then
+    if has_service "$SERVICE_CTRL"; then
+      ctrl_status
+    else
+      echo "未检测到主控服务 ${SERVICE_CTRL}"
+    fi
+    if has_service "$SERVICE_AGENT"; then
+      agent_status
+    fi
+    exit 0
+  fi
   role=$(choose_role)
   case "$role" in
     server) server_menu ;;
