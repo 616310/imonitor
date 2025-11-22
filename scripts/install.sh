@@ -281,6 +281,8 @@ agent_settings() {
 
 uninstall_agent() {
   require_root
+  local keep_cli=0
+  has_service "$SERVICE_CTRL" && keep_cli=1
   systemctl disable --now "${SERVICE_AGENT}.service" 2>/dev/null || true
   rm -f /etc/systemd/system/${SERVICE_AGENT}.service
   systemctl daemon-reload
@@ -290,19 +292,26 @@ uninstall_agent() {
   if [[ -f "$loader_sys" && -f "$loader_pkg" ]] && cmp -s "$loader_sys" "$loader_pkg"; then
     rm -f "$loader_sys"
   fi
+  pkill -f "${agent_dir}/agent" 2>/dev/null || true
   rm -rf "$agent_dir"
-  rm -f /usr/local/bin/i-mo
-  echo "Agent 已彻底卸载（目录、systemd、i-mo 清理完成）"
+  if [[ $keep_cli -eq 0 ]]; then
+    rm -f /usr/local/bin/i-mo
+  fi
+  echo "Agent 已彻底卸载（目录、systemd、残留进程与 i-mo 清理完成）"
 }
 
 uninstall_panel() {
   require_root
+  local keep_cli=0
+  has_service "$SERVICE_AGENT" && keep_cli=1
   systemctl disable --now "${SERVICE_CTRL}.service" 2>/dev/null || true
   rm -f /etc/systemd/system/${SERVICE_CTRL}.service
   systemctl daemon-reload
   rm -rf "$CTRL_DIR"
-  rm -f /usr/local/bin/i-mo
-  echo "已彻底卸载面板（目录、systemd、i-mo 清理完成）"
+  if [[ $keep_cli -eq 0 ]]; then
+    rm -f /usr/local/bin/i-mo
+  fi
+  echo "已彻底卸载面板（目录、systemd、残留进程与 i-mo 清理完成）"
 }
 
 update_panel() {
@@ -430,7 +439,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=$ENV_FILE
-ExecStart=/bin/sh -c "$AGENT_CMD"
+ExecStart=$AGENT_BIN --token=${IMONITOR_TOKEN} --endpoint=${IMONITOR_ENDPOINT} --interval=${IMONITOR_INTERVAL} --flag=${IMONITOR_FLAG}
+KillMode=process
 Restart=always
 RestartSec=5
 StandardOutput=journal
