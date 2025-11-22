@@ -62,27 +62,50 @@ install_git_if_needed() {
   fi
 }
 
+is_private_v4() {
+  local ip="$1"
+  [[ "$ip" =~ ^10\. ]] && return 0
+  [[ "$ip" =~ ^192\.168\. ]] && return 0
+  if [[ "$ip" =~ ^172\. ]]; then
+    local second="${ip#172.}"
+    second="${second%%.*}"
+    [[ "$second" -ge 16 && "$second" -le 31 ]] && return 0
+  fi
+  return 1
+}
+
 detect_public_addr() {
   if ! command -v ip >/dev/null 2>&1; then
     echo "127.0.0.1"
     return 0
   fi
-  local addr
-  addr=$(
-    set +e +o pipefail
-    v4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-    if [[ -n "$v4" ]]; then
-      echo "$v4"
-      exit 0
-    fi
-    v6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
-    if [[ -n "$v6" ]]; then
-      echo "[$v6]"
-      exit 0
-    fi
+  local v4_public v4_any v6_any
+  v4_public=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do is_private_v4 "$ip" || { echo "$ip"; break; }; done)
+  v4_any=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  v6_any=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  if [[ -n "$v4_public" ]]; then
+    echo "$v4_public"
+  elif [[ -n "$v4_any" ]]; then
+    echo "$v4_any"
+  elif [[ -n "$v6_any" ]]; then
+    echo "[$v6_any]"
+  else
     echo "127.0.0.1"
-  )
-  echo "$addr"
+  fi
+}
+
+detect_alt_addr() {
+  if ! command -v ip >/dev/null 2>&1; then
+    return
+  fi
+  local primary="$1" v4 v6
+  v4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  v6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
+  if [[ "$primary" == \[*\]* ]]; then
+    [[ -n "$v4" ]] && echo "$v4"
+  else
+    [[ -n "$v6" ]] && echo "[$v6]"
+  fi
 }
 
 normalize_host() {
@@ -142,6 +165,7 @@ ADMIN_USER="admin"
 OFFLINE_TIMEOUT="10"
 
 HOST_DETECTED=$(detect_public_addr)
+ALT_HOST=$(detect_alt_addr "$HOST_DETECTED")
 INSTALL_DIR=$(prompt_default "安装目录" "${INSTALL_DIR}")
 RUN_USER=$(prompt_default "运行用户 (将自动创建)" "${RUN_USER}")
 PORT=$(prompt_default "服务监听端口" "${PORT}")
@@ -204,6 +228,9 @@ systemctl enable --now imonitor-lite.service
 
 echo
 echo "安装完成。访问地址：${PUBLIC_URL}"
+if [[ -n "${ALT_HOST:-}" ]]; then
+  echo "也可访问：http://${ALT_HOST}:${PORT}"
+fi
 echo "管理员账号：${ADMIN_USER}"
 echo "管理员密码：${ADMIN_PASS}"
 echo "如需修改地址/端口/凭据：编辑 ${SERVICE_FILE} 后 systemctl daemon-reload && systemctl restart imonitor-lite.service"
