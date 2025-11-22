@@ -439,8 +439,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=$ENV_FILE
-ExecStart=/bin/sh -c "$AGENT_CMD"
-KillMode=process
+ExecStart=$AGENT_BIN --token=\$IMONITOR_TOKEN --endpoint=\$IMONITOR_ENDPOINT --interval=\$IMONITOR_INTERVAL --flag=\$IMONITOR_FLAG
+KillMode=control-group
 Restart=always
 RestartSec=5
 StandardOutput=journal
