@@ -217,12 +217,27 @@ ctrl_set_port() {
   ctrl_restart
 }
 
-ctrl_set_public() {
+ctrl_set_bind_mode() {
   require_root
-  local host
-  host=$(prompt "新的公共地址（含 http/https）" "http://127.0.0.1:8080")
-  sed -i "s?^Environment=IMONITOR_PUBLIC_URL=.*?Environment=IMONITOR_PUBLIC_URL=${host}?g" "$CTRL_UNIT"
-  echo "公共地址已更新为 ${host}"
+  local port bind choice host_default cur_public
+  port=$(ctrl_bind_port)
+  port=${port:-8080}
+  echo "选择监听模式:"
+  echo " 1) IPv4+IPv6 (默认)"
+  echo " 2) 仅 IPv4"
+  echo " 3) 仅 IPv6"
+  read -r -p "> " choice
+  case "$choice" in
+    2) bind="0.0.0.0:${port}"; host_default="http://127.0.0.1:${port}" ;;
+    3) bind="[::]:${port}"; host_default="http://[::1]:${port}" ;;
+    *) bind="[::]:${port}"; host_default="http://127.0.0.1:${port}" ;;
+  esac
+  line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${bind}"
+  cur_public=$(ctrl_env "IMONITOR_PUBLIC_URL")
+  if [[ -z "$cur_public" ]]; then
+    line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${host_default}"
+  fi
+  echo "监听已更新为 ${bind}"
   systemctl daemon-reload
   ctrl_restart
 }
@@ -361,7 +376,7 @@ server_menu() {
  4) 停止面板
  5) 重启面板
  6) 修改端口
- 7) 修改公共地址
+ 7) 修改监听地址族 (IPv4/IPv6)
  8) 修改管理员账号/密码
  9) 查看设置
 10) 更新版本（git pull + 重启）
@@ -376,7 +391,7 @@ MENU
       4) ctrl_stop ;;
       5) ctrl_restart ;;
       6) ctrl_set_port ;;
-      7) ctrl_set_public ;;
+      7) ctrl_set_bind_mode ;;
       8) ctrl_set_admin ;;
       9) ctrl_settings ;;
       10) update_panel ;;
