@@ -42,7 +42,7 @@ cargo build --release
 ## 主要环境变量（面板）
 - `IMONITOR_PUBLIC_URL`：外网访问地址（含协议）。
 - `IMONITOR_BIND`：监听地址，默认 `[::]:8080`。
-- `IMONITOR_OFFLINE_TIMEOUT`：离线判定秒数，默认 30。
+- `IMONITOR_OFFLINE_TIMEOUT`：离线判定秒数，默认 10。
 
 ## 实用命令
 ```bash

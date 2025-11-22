@@ -185,7 +185,7 @@ async fn main() -> anyhow::Result<()> {
         offline_timeout: std::env::var("IMONITOR_OFFLINE_TIMEOUT")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(30),
+            .unwrap_or(10),
         bind_addr: std::env::var("IMONITOR_BIND")
             .unwrap_or_else(|_| "[::]:8080".into()),
         admin_user: std::env::var("IMONITOR_ADMIN_USER").ok(),

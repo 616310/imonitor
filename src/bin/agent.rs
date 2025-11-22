@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DEFAULT_INTERVAL: u64 = 5;
+const DEFAULT_INTERVAL: u64 = 3;
 const DEFAULT_FLAG: &str = "🖥️";
 
 struct Config {

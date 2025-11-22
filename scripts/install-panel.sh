@@ -139,6 +139,7 @@ INSTALL_DIR="/opt/imonitor-lite"
 RUN_USER="imonitor"
 PORT="8080"
 ADMIN_USER="admin"
+OFFLINE_TIMEOUT="10"
 
 HOST_DETECTED=$(detect_public_addr)
 INSTALL_DIR=$(prompt_default "安装目录" "${INSTALL_DIR}")
@@ -186,6 +187,7 @@ Environment=IMONITOR_PUBLIC_URL=${PUBLIC_URL}
 Environment=IMONITOR_BIND=${BIND_ADDR}
 Environment=IMONITOR_ADMIN_USER=${ADMIN_USER}
 Environment=IMONITOR_ADMIN_PASS=${ADMIN_PASS}
+Environment=IMONITOR_OFFLINE_TIMEOUT=${OFFLINE_TIMEOUT}
 ExecStart=${INSTALL_DIR}/bin/imonitor
 Restart=always
 RestartSec=5
