@@ -207,9 +207,9 @@ echo "安装完成。访问地址：${PUBLIC_URL}"
 echo "管理员账号：${ADMIN_USER}"
 echo "管理员密码：${ADMIN_PASS}"
 echo "如需修改地址/端口/凭据：编辑 ${SERVICE_FILE} 后 systemctl daemon-reload && systemctl restart imonitor-lite.service"
-if [[ -e /dev/tty ]]; then
+if [[ -t 1 && -e /dev/tty ]]; then
   echo "提示：已安装运维命令 i-mo，正在为你打开管理菜单（可按 12 退出）..."
-  /usr/local/bin/i-mo </dev/tty || true
+  /usr/local/bin/i-mo </dev/tty >/dev/tty 2>/dev/tty || true
 else
   echo "提示：已安装运维命令 i-mo，可运行 sudo i-mo 管理面板/Agent"
 fi
