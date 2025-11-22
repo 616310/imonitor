@@ -282,7 +282,7 @@ server_menu() {
 11) 卸载面板
 12) 退出
 MENU
-    read -r -p "> " sel
+    read -r -p "> " sel || break
     case "$sel" in
       1) ctrl_status ;;
       2) ctrl_logs ;;
@@ -313,7 +313,7 @@ agent_menu() {
  7) 卸载 Agent
  8) 退出
 MENU
-    read -r -p "> " sel
+    read -r -p "> " sel || break
     case "$sel" in
       1) agent_status ;;
       2) agent_logs ;;
