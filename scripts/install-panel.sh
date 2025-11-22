@@ -42,8 +42,9 @@ prompt_secret() {
 
 generate_random_pass() {
   (
-    set +e +o pipefail
-    head -c 64 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16
+    set +e +E +o pipefail
+    raw=$(od -An -N16 -t x1 /dev/urandom 2>/dev/null | tr -d ' \n')
+    echo "${raw:0:16}"
   )
 }
 
