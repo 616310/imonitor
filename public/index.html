@@ -408,7 +408,17 @@ createApp({
 
         const fetchNodes = async () => {
             try {
-                const res = await fetch('/api/nodes');
+                const res = await fetch('/api/nodes', {
+                    headers: authHeader.value ? { Authorization: authHeader.value } : {}
+                });
+                if (res.status === 401) {
+                    servers.value = [];
+                    activeServer.value = null;
+                    lastUpdated.value = null;
+                    logout();
+                    openLoginModal();
+                    return;
+                }
                 if (!res.ok) throw new Error('加载失败');
                 const data = await res.json();
                 lastUpdated.value = data.generated_at;
