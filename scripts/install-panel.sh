@@ -164,7 +164,11 @@ ask_yes() {
   else
     hint="[y/N]"
   fi
-  read -r -p "$msg $hint: " ans
+  if [[ -n "${IMONITOR_AUTO:-}" || ! -t 0 || ! -r /dev/tty ]]; then
+    ans="$default"
+  else
+    read -r -p "$msg $hint: " ans < /dev/tty || true
+  fi
   if [[ -z "$ans" ]]; then
     ans="$default"
   fi
@@ -263,7 +267,10 @@ add_binding() {
 
 if [[ -n "$LAN_V4" ]]; then
   if ask_yes "绑定内网 IPv4 (${LAN_V4})" "Y"; then
-    read -r -p "内网 IPv4 地址 [${LAN_V4}]: " v
+    v="$LAN_V4"
+    if [[ -t 0 && -r /dev/tty ]]; then
+      read -r -p "内网 IPv4 地址 [${LAN_V4}]: " v < /dev/tty || true
+    fi
     v=${v:-$LAN_V4}
     add_binding "$v"
   fi
@@ -271,28 +278,43 @@ fi
 
 if [[ -n "$PUB_V4" ]]; then
   if ask_yes "绑定公网 IPv4 (${PUB_V4})" "Y"; then
-    read -r -p "公网 IPv4 地址 [${PUB_V4}]: " v
+    v="$PUB_V4"
+    if [[ -t 0 && -r /dev/tty ]]; then
+      read -r -p "公网 IPv4 地址 [${PUB_V4}]: " v < /dev/tty || true
+    fi
     v=${v:-$PUB_V4}
     add_binding "$v"
   fi
 else
-  read -r -p "未检测到公网 IPv4，如需绑定请输入（留空跳过）: " v
+  v=""
+  if [[ -t 0 && -r /dev/tty ]]; then
+    read -r -p "未检测到公网 IPv4，如需绑定请输入（留空跳过）: " v < /dev/tty || true
+  fi
   add_binding "$v"
 fi
 
 if [[ -n "$PUB_V6" ]]; then
   if ask_yes "绑定公网 IPv6 (${PUB_V6})" "Y"; then
-    read -r -p "公网 IPv6 地址 [${PUB_V6}]: " v
+    v="$PUB_V6"
+    if [[ -t 0 && -r /dev/tty ]]; then
+      read -r -p "公网 IPv6 地址 [${PUB_V6}]: " v < /dev/tty || true
+    fi
     v=${v:-$PUB_V6}
     add_binding "$v"
   fi
 else
-  read -r -p "未检测到公网 IPv6，如需绑定请输入（留空跳过）: " v
+  v=""
+  if [[ -t 0 && -r /dev/tty ]]; then
+    read -r -p "未检测到公网 IPv6，如需绑定请输入（留空跳过）: " v < /dev/tty || true
+  fi
   add_binding "$v"
 fi
 
 if [[ ${#BIND_LIST[@]} -eq 0 ]]; then
-  read -r -p "未选择任何地址，默认绑定所有接口 [0.0.0.0]: " v
+  v="0.0.0.0"
+  if [[ -t 0 && -r /dev/tty ]]; then
+    read -r -p "未选择任何地址，默认绑定所有接口 [0.0.0.0]: " v < /dev/tty || true
+  fi
   v=${v:-0.0.0.0}
   add_binding "$v"
 fi
