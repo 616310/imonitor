@@ -295,7 +295,25 @@
                         <i class="ph-bold ph-seal-check"></i> 生成接入令牌
                     </button>
                 </div>
-                <div v-if="installCommand" class="bg-gray-900 rounded-xl p-5 mb-6 group relative cursor-pointer transition hover:scale-[1.01]" @click="copyCommand">
+                <div v-if="installCommands.length" class="space-y-3 mb-6">
+                    <div v-for="(cmd, idx) in installCommands" :key="idx" class="bg-gray-900 rounded-xl p-5 group relative cursor-pointer transition hover:scale-[1.01]" @click="copyCommand(cmd.command)">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-[12px] font-semibold text-white/80 flex items-center gap-2">
+                                <i class="ph-bold ph-terminal-window text-sm"></i>
+                                {{ cmd.label || ('接入命令 ' + (idx + 1)) }}
+                            </span>
+                            <span class="text-[10px] text-gray-400 font-medium truncate max-w-[50%]" v-if="cmd.endpoint">{{ cmd.endpoint }}</span>
+                        </div>
+                        <code class="font-mono text-sm text-green-400 break-all leading-relaxed">{{ cmd.command }}</code>
+                        <div class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl backdrop-blur-[2px]">
+                            <span class="text-white font-bold text-sm flex items-center gap-2"><i class="ph-bold ph-copy"></i> 点击复制命令</span>
+                        </div>
+                        <div v-if="copyNotice" class="absolute -bottom-14 left-0 right-0 mx-auto w-max bg-white text-gray-800 text-xs font-semibold px-3 py-1 rounded-full shadow-lg">
+                            {{ copyNotice }}
+                        </div>
+                    </div>
+                </div>
+                <div v-else-if="installCommand" class="bg-gray-900 rounded-xl p-5 mb-6 group relative cursor-pointer transition hover:scale-[1.01]" @click="copyCommand">
                     <code class="font-mono text-sm text-green-400 break-all leading-relaxed">{{ installCommand }}</code>
                     <div class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl backdrop-blur-[2px]">
                         <span class="text-white font-bold text-sm flex items-center gap-2"><i class="ph-bold ph-copy"></i> 点击复制命令</span>
@@ -371,6 +389,7 @@ createApp({
         const deleteConfirm = ref(false);
         const actionNotice = ref('');
         const installCommand = ref('');
+        const installCommands = ref([]);
         const pendingLabel = ref('');
         const lastUpdated = ref(null);
         const timerHandle = ref(null);
@@ -496,6 +515,7 @@ createApp({
             }
             showAddModal.value = true;
             installCommand.value = '';
+            installCommands.value = [];
         };
 
         const closeAddModal = () => {
@@ -594,7 +614,20 @@ createApp({
                 });
                 if (!res.ok) throw new Error('无法生成令牌');
                 const data = await res.json();
-                installCommand.value = data.command;
+                let list = [];
+                if (Array.isArray(data.command_list) && data.command_list.length) {
+                    list = data.command_list;
+                } else if (Array.isArray(data.commands) && data.commands.length) {
+                    list = data.commands.map((cmd, idx) => ({
+                        label: `接入命令 ${idx + 1}`,
+                        endpoint: '',
+                        command: cmd
+                    }));
+                } else if (data.command) {
+                    list = [{ label: '接入命令', endpoint: '', command: data.command }];
+                }
+                installCommands.value = list;
+                installCommand.value = data.command || (list[0]?.command ?? '');
                 pendingLabel.value = '';
             } catch (err) {
                 alert(err.message || '生成失败');
@@ -663,9 +696,9 @@ createApp({
             }
         };
 
-        const copyCommand = async () => {
-            if (!installCommand.value) return;
-            const text = installCommand.value;
+        const copyCommand = async (textArg) => {
+            const text = textArg || installCommand.value;
+            if (!text) return;
             const fallbackCopy = () => {
                 const ta = document.createElement('textarea');
                 ta.value = text;
@@ -788,6 +821,7 @@ createApp({
             activeServer,
             showAddModal,
             installCommand,
+            installCommands,
             pendingLabel,
             lastUpdated,
             fetchNodes,

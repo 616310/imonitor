@@ -19,7 +19,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
-use tokio::{fs, net::TcpListener, signal, sync::RwLock};
+use tokio::{fs, net::TcpListener, signal, sync::RwLock, task::JoinSet};
 use tower_http::services::ServeDir;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -28,8 +28,9 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct Settings {
     public_url: String,
+    public_urls: Vec<String>,
     offline_timeout: u64,
-    bind_addr: String,
+    bind_addrs: Vec<SocketAddr>,
     admin_user: Option<String>,
     admin_pass: Option<String>,
 }
@@ -118,6 +119,17 @@ struct ReserveRequest {
 struct ReserveResponse {
     node_id: String,
     token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    commands: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command_list: Option<Vec<LabeledCommand>>,
+    command: String,
+}
+
+#[derive(Serialize)]
+struct LabeledCommand {
+    label: String,
+    endpoint: String,
     command: String,
 }
 
@@ -179,15 +191,44 @@ async fn main() -> anyhow::Result<()> {
         fs::create_dir_all(&data_dir).await?;
     }
 
+    let public_url_raw = std::env::var("IMONITOR_PUBLIC_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8080".into());
+    let public_urls: Vec<String> = public_url_raw
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+    let public_urls = if public_urls.is_empty() {
+        vec!["http://127.0.0.1:8080".into()]
+    } else {
+        public_urls
+    };
+    let public_url = public_urls
+        .iter()
+        .find(|u| !classify_endpoint(u).starts_with("内网"))
+        .cloned()
+        .or_else(|| public_urls.get(0).cloned())
+        .unwrap_or_else(|| "http://127.0.0.1:8080".into());
+    let bind_raw = std::env::var("IMONITOR_BIND").unwrap_or_else(|_| "[::]:8080".into());
+    let bind_addrs: Vec<SocketAddr> = bind_raw
+        .split(',')
+        .map(|s| s.trim())
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    let bind_addrs = if bind_addrs.is_empty() {
+        vec!["[::]:8080".parse().unwrap()]
+    } else {
+        bind_addrs
+    };
     let settings = Settings {
-        public_url: std::env::var("IMONITOR_PUBLIC_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8080".into()),
+        public_url,
+        public_urls,
         offline_timeout: std::env::var("IMONITOR_OFFLINE_TIMEOUT")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(10),
-        bind_addr: std::env::var("IMONITOR_BIND")
-            .unwrap_or_else(|_| "[::]:8080".into()),
+        bind_addrs,
         admin_user: std::env::var("IMONITOR_ADMIN_USER").ok(),
         admin_pass: std::env::var("IMONITOR_ADMIN_PASS").ok(),
     };
@@ -221,19 +262,28 @@ async fn main() -> anyhow::Result<()> {
         .nest_service("/assets", ServeDir::new(state.public_dir.as_ref()))
         .with_state(state.clone());
 
-    let addr: SocketAddr = state
-        .settings
-        .bind_addr
-        .parse()
-        .unwrap_or_else(|_| "[::]:8080".parse().unwrap());
-    info!("listening on {}", addr);
-    let listener = TcpListener::bind(addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    if state.settings.bind_addrs.is_empty() {
+        return Err(anyhow::anyhow!("no bind addresses configured"));
+    }
+
+    let mut servers: JoinSet<Result<(), std::io::Error>> = JoinSet::new();
+    for addr in state.settings.bind_addrs.iter().copied() {
+        let app = app.clone();
+        servers.spawn(async move {
+            let listener = TcpListener::bind(addr).await?;
+            info!("listening on {}", addr);
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+        });
+    }
+
+    while let Some(res) = servers.join_next().await {
+        res??;
+    }
 
     Ok(())
 }
@@ -326,14 +376,44 @@ async fn reserve_node(
         &state.data_dir.join("imonitor.db"),
         payload.label.as_deref(),
     )?;
-    let command = format!(
-        "curl -fsSL {base}/install.sh | bash -s -- --token={token} --endpoint={base}",
-        base = state.settings.public_url,
-        token = result.token
-    );
+    let commands: Vec<String> = state
+        .settings
+        .public_urls
+        .iter()
+        .map(|base| {
+            format!(
+                "curl -fsSL {base}/install.sh | bash -s -- --token={token} --endpoint={base}",
+                base = base,
+                token = result.token
+            )
+        })
+        .collect();
+    let labeled: Vec<LabeledCommand> = state
+        .settings
+        .public_urls
+        .iter()
+        .zip(commands.iter())
+        .map(|(endpoint, command)| LabeledCommand {
+            label: classify_endpoint(endpoint),
+            endpoint: endpoint.clone(),
+            command: command.clone(),
+        })
+        .collect();
+    let command = commands
+        .get(0)
+        .cloned()
+        .unwrap_or_else(|| {
+            format!(
+                "curl -fsSL {base}/install.sh | bash -s -- --token={token} --endpoint={base}",
+                base = state.settings.public_url,
+                token = result.token
+            )
+        });
     Ok(Json(ReserveResponse {
         node_id: result.node_id,
         token: result.token,
+        commands: Some(commands),
+        command_list: Some(labeled),
         command,
     }))
 }
@@ -530,6 +610,41 @@ fn generate_token() -> String {
     (0..40)
         .map(|_| format!("{:x}", rng.gen_range(0..16)))
         .collect()
+}
+
+fn classify_endpoint(endpoint: &str) -> String {
+    let host_part = endpoint
+        .split("://")
+        .nth(1)
+        .unwrap_or(endpoint)
+        .split('/')
+        .next()
+        .unwrap_or("");
+    let host = if host_part.starts_with('[') && host_part.contains(']') {
+        host_part
+            .trim_start_matches('[')
+            .split(']')
+            .next()
+            .unwrap_or(host_part)
+            .to_string()
+    } else {
+        host_part.split(':').next().unwrap_or(host_part).to_string()
+    };
+    if let Ok(addr) = host.parse::<std::net::Ipv4Addr>() {
+        if addr.is_private() {
+            "内网 IPv4".to_string()
+        } else {
+            "公网 IPv4".to_string()
+        }
+    } else if let Ok(addr6) = host.parse::<std::net::Ipv6Addr>() {
+        if addr6.is_loopback() || addr6.is_unique_local() || addr6.is_unicast_link_local() {
+            "内网 IPv6".to_string()
+        } else {
+            "公网 IPv6".to_string()
+        }
+    } else {
+        "访问地址".to_string()
+    }
 }
 
 fn auth_enabled(settings: &Settings) -> bool {

@@ -34,16 +34,31 @@ line_in_file() {
   fi
 }
 
+is_private_v4() {
+  local ip="$1"
+  [[ "$ip" =~ ^10\. ]] && return 0
+  [[ "$ip" =~ ^192\.168\. ]] && return 0
+  if [[ "$ip" =~ ^172\. ]]; then
+    local second="${ip#172.}"
+    second="${second%%.*}"
+    [[ "$second" -ge 16 && "$second" -le 31 ]] && return 0
+  fi
+  return 1
+}
+
 detect_ip() {
-  local prefer="$1" ip4 ip6
+  local prefer="$1" ip4 ip4_public ip6
   if command -v ip >/dev/null 2>&1; then
+    ip4_public=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do is_private_v4 "$ip" || { echo "$ip"; break; }; done)
     ip4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
     ip6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
   fi
   if [[ "$prefer" == "v6" ]]; then
     [[ -n "$ip6" ]] && echo "[$ip6]" && return
+    [[ -n "$ip4_public" ]] && echo "$ip4_public" && return
     [[ -n "$ip4" ]] && echo "$ip4" && return
   else
+    [[ -n "$ip4_public" ]] && echo "$ip4_public" && return
     [[ -n "$ip4" ]] && echo "$ip4" && return
     [[ -n "$ip6" ]] && echo "[$ip6]" && return
   fi
@@ -57,17 +72,31 @@ ctrl_env() {
 }
 
 ctrl_public_url() {
-  ctrl_env "IMONITOR_PUBLIC_URL"
+  local raw
+  raw=$(ctrl_env "IMONITOR_PUBLIC_URL")
+  [[ -z "$raw" ]] && return
+  echo "${raw%%,*}"
+}
+
+ctrl_public_urls() {
+  local raw urls
+  raw=$(ctrl_env "IMONITOR_PUBLIC_URL")
+  [[ -z "$raw" ]] && return
+  IFS=',' read -ra urls <<<"$raw"
+  for u in "${urls[@]}"; do
+    [[ -n "$u" ]] && echo "$u"
+  done
 }
 
 ctrl_bind_port() {
   local bind
   bind=$(ctrl_env "IMONITOR_BIND")
   [[ -z "$bind" ]] && return
+  bind="${bind%%,*}"
   echo "${bind##*:}" | tr -d ']'
 }
 
-rewrite_public_url_port() {
+rewrite_single_url_port() {
   local url="$1" port="$2"
   [[ -z "$url" ]] && url="http://127.0.0.1:${port}"
   local scheme="http" rest host path
@@ -93,8 +122,90 @@ rewrite_public_url_port() {
   echo "${scheme}://${host}:${port}${path}"
 }
 
+rewrite_public_url_port() {
+  local url="$1" port="$2" urls out=()
+  [[ -z "$url" ]] && url="http://127.0.0.1:${port}"
+  IFS=',' read -ra urls <<<"$url"
+  for u in "${urls[@]}"; do
+    out+=("$(rewrite_single_url_port "$u" "$port")")
+  done
+  (IFS=,; echo "${out[*]}")
+}
+
+rewrite_bind_port_list() {
+  local bind_list="$1" port="$2" binds out=()
+  IFS=',' read -ra binds <<<"$bind_list"
+  for b in "${binds[@]}"; do
+    [[ -z "$b" ]] && continue
+    local host="${b%:*}"
+    out+=("${host}:${port}")
+  done
+  (IFS=,; echo "${out[*]}")
+}
+
+format_bind_addr() {
+  local host="$1" port="$2"
+  if [[ "$host" == *:* && "$host" != \[* ]]; then
+    echo "[${host}]:${port}"
+  else
+    echo "${host}:${port}"
+  fi
+}
+
+format_url_addr() {
+  local host="$1" port="$2"
+  if [[ "$host" == *:* && "$host" != \[* ]]; then
+    echo "http://[${host}]:${port}"
+  else
+    echo "http://${host}:${port}"
+  fi
+}
+
+detect_private_v4_addr() {
+  if ! command -v ip >/dev/null 2>&1; then
+    return 0
+  fi
+  ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
+    if is_private_v4 "$ip"; then
+      echo "$ip"
+      break
+    fi
+  done
+}
+
+detect_public_v4_addr() {
+  if ! command -v ip >/dev/null 2>&1; then
+    return 0
+  fi
+  ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
+    if ! is_private_v4 "$ip"; then
+      echo "$ip"
+      break
+    fi
+  done
+}
+
+detect_public_v6_addr() {
+  if ! command -v ip >/dev/null 2>&1; then
+    return 0
+  fi
+  ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1
+}
+
+bind_has_host() {
+  local list="$1" host="$2" arr
+  [[ -z "$list" || -z "$host" ]] && return 1
+  IFS=',' read -ra arr <<<"$list"
+  for item in "${arr[@]}"; do
+    if [[ "$item" == *"$host"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 ctrl_status() {
-  local state since host port
+  local state since host port urls
   state=$(systemctl is-active "$SERVICE_CTRL" 2>/dev/null || true)
   since=$(systemctl show "$SERVICE_CTRL" -p ActiveEnterTimestamp --value 2>/dev/null)
   host=$(ctrl_public_url)
@@ -102,7 +213,15 @@ ctrl_status() {
   [[ -z "$host" && -n "$port" ]] && host="http://127.0.0.1:${port}"
   echo "面板状态：${state:-unknown}"
   [[ -n "$since" ]] && echo "运行起始：$since"
-  [[ -n "$host" ]] && echo "访问地址：$host"
+  urls=$(ctrl_public_urls)
+  if [[ -n "$urls" ]]; then
+    echo "访问地址："
+    while IFS= read -r u; do
+      [[ -n "$u" ]] && echo "  - $u"
+    done <<<"$urls"
+  elif [[ -n "$host" ]]; then
+    echo "访问地址：$host"
+  fi
   if [[ "$state" != "active" ]]; then
     echo "提示：使用 i-mo 菜单启动/重启，或运行 systemctl start ${SERVICE_CTRL}.service"
   fi
@@ -118,30 +237,38 @@ ctrl_stop() { systemctl stop "$SERVICE_CTRL" && ctrl_status; }
 ctrl_restart() { systemctl restart "$SERVICE_CTRL" && ctrl_status; }
 
 ctrl_settings() {
-  local port host admin_user admin_pass
+  local port host admin_user admin_pass urls
   port=$(ctrl_bind_port)
   host=$(ctrl_public_url)
+  urls=$(ctrl_public_urls)
   admin_user=$(ctrl_env "IMONITOR_ADMIN_USER")
   admin_pass=$(ctrl_env "IMONITOR_ADMIN_PASS")
   echo "当前设置："
   echo "  端口: ${port:-未知}"
-  echo "  公共地址: ${host:-未知}"
+  if [[ -n "$urls" ]]; then
+    echo "  公共地址:"
+    while IFS= read -r u; do
+      [[ -n "$u" ]] && echo "    - ${u}"
+    done <<<"$urls"
+  else
+    echo "  公共地址: ${host:-未知}"
+  fi
   echo "  管理员: ${admin_user:-未知}"
   echo "  管理员密码: ${admin_pass:-<未设置>}"
 }
 
 ctrl_set_port() {
   require_root
-  local port default_port
+  local port default_port bind_raw new_bind cur_public new_public
   default_port=$(ctrl_bind_port)
   port=$(prompt "新的服务端口" "${default_port:-8080}")
-  local bind="[::]:${port}"
-  sed -i "s?^Environment=IMONITOR_BIND=.*?Environment=IMONITOR_BIND=${bind}?g" "$CTRL_UNIT"
-  local cur_public
-  cur_public=$(ctrl_public_url)
-  local new_public
+  bind_raw=$(ctrl_env "IMONITOR_BIND")
+  new_bind=$(rewrite_bind_port_list "${bind_raw:-[::]:${port}}" "$port")
+  [[ -z "$new_bind" ]] && new_bind="[::]:${port}"
+  line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${new_bind}"
+  cur_public=$(ctrl_env "IMONITOR_PUBLIC_URL")
   new_public=$(rewrite_public_url_port "$cur_public" "$port")
-  sed -i "s?^Environment=IMONITOR_PUBLIC_URL=.*?Environment=IMONITOR_PUBLIC_URL=${new_public}?g" "$CTRL_UNIT"
+  line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${new_public}"
   echo "端口已更新为 ${port}"
   systemctl daemon-reload
   ctrl_restart
@@ -149,23 +276,77 @@ ctrl_set_port() {
 
 ctrl_set_bind_mode() {
   require_root
-  local port bind choice host_default cur_public
+  local port cur_binds binds urls lan_v4 pub_v4 pub_v6 default_choice v
   port=$(ctrl_bind_port)
   port=${port:-8080}
-  echo "选择监听模式:"
-  echo " 1) IPv4+IPv6 (默认)"
-  echo " 2) 仅 IPv4"
-  echo " 3) 仅 IPv6"
-  read -r -p "> " choice
-  case "$choice" in
-    2) bind="0.0.0.0:${port}"; host_default=$(detect_ip "v4"); host_default="http://${host_default}:${port}" ;;
-    3) bind="[::]:${port}"; host_default=$(detect_ip "v6"); host_default="http://${host_default}:${port}" ;;
-    *) bind="[::]:${port}"; host_default=$(detect_ip "v4"); host_default="http://${host_default}:${port}" ;;
-  esac
-  line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${bind}"
-  cur_public=$(ctrl_public_url)
-  line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${host_default}"
-  echo "监听已更新为 ${bind}"
+  cur_binds=$(ctrl_env "IMONITOR_BIND")
+  lan_v4=$(detect_private_v4_addr || true)
+  pub_v4=$(detect_public_v4_addr || true)
+  pub_v6=$(detect_public_v6_addr || true)
+  binds=()
+  urls=()
+
+  add_choice() {
+    local host="$1"
+    [[ -z "$host" ]] && return
+    binds+=("$(format_bind_addr "$host" "$port")")
+    urls+=("$(format_url_addr "$host" "$port")")
+  }
+
+  if [[ -n "$lan_v4" ]]; then
+    default_choice="N"
+    if [[ -z "$cur_binds" ]] || bind_has_host "$cur_binds" "$lan_v4"; then
+      default_choice="Y"
+    fi
+    if ask_yes "绑定内网 IPv4 (${lan_v4})" "$default_choice"; then
+      read -r -p "内网 IPv4 地址 [${lan_v4}]: " v; v=${v:-$lan_v4}
+      add_choice "$v"
+    fi
+  fi
+
+  if [[ -n "$pub_v4" ]]; then
+    default_choice="N"
+    if [[ -z "$cur_binds" ]] || bind_has_host "$cur_binds" "$pub_v4"; then
+      default_choice="Y"
+    fi
+    if ask_yes "绑定公网 IPv4 (${pub_v4})" "$default_choice"; then
+      read -r -p "公网 IPv4 地址 [${pub_v4}]: " v; v=${v:-$pub_v4}
+      add_choice "$v"
+    fi
+  else
+    read -r -p "未检测到公网 IPv4，如需绑定请输入（留空跳过）: " v
+    add_choice "$v"
+  fi
+
+  if [[ -n "$pub_v6" ]]; then
+    default_choice="N"
+    if [[ -z "$cur_binds" ]] || bind_has_host "$cur_binds" "$pub_v6"; then
+      default_choice="Y"
+    fi
+    if ask_yes "绑定公网 IPv6 (${pub_v6})" "$default_choice"; then
+      read -r -p "公网 IPv6 地址 [${pub_v6}]: " v; v=${v:-$pub_v6}
+      add_choice "$v"
+    fi
+  else
+    read -r -p "未检测到公网 IPv6，如需绑定请输入（留空跳过）: " v
+    add_choice "$v"
+  fi
+
+  if [[ ${#binds[@]} -eq 0 ]]; then
+    read -r -p "未选择任何地址，默认绑定所有接口 [0.0.0.0]: " v
+    v=${v:-0.0.0.0}
+    add_choice "$v"
+  fi
+
+  local new_bind new_urls
+  new_bind=$(IFS=,; echo "${binds[*]}")
+  new_urls=$(IFS=,; echo "${urls[*]}")
+  line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${new_bind}"
+  line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${new_urls}"
+  echo "监听已更新为:"
+  for b in "${binds[@]}"; do
+    echo "  - ${b}"
+  done
   systemctl daemon-reload
   ctrl_restart
 }
@@ -304,7 +485,7 @@ server_menu() {
  4) 停止面板
  5) 重启面板
  6) 修改端口
- 7) 修改监听地址族 (IPv4/IPv6)
+ 7) 选择绑定地址 (内网/公网 IPv4/IPv6)
  8) 修改管理员账号/密码
  9) 查看设置
 10) 更新版本（git pull + 重启）

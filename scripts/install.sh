@@ -121,16 +121,31 @@ line_in_file() {
   fi
 }
 
+is_private_v4() {
+  local ip="$1"
+  [[ "$ip" =~ ^10\. ]] && return 0
+  [[ "$ip" =~ ^192\.168\. ]] && return 0
+  if [[ "$ip" =~ ^172\. ]]; then
+    local second="${ip#172.}"
+    second="${second%%.*}"
+    [[ "$second" -ge 16 && "$second" -le 31 ]] && return 0
+  fi
+  return 1
+}
+
 detect_ip() {
-  local prefer="$1" ip4 ip6
+  local prefer="$1" ip4 ip4_public ip6
   if command -v ip >/dev/null 2>&1; then
+    ip4_public=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do is_private_v4 "$ip" || { echo "$ip"; break; }; done)
     ip4=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
     ip6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
   fi
   if [[ "$prefer" == "v6" ]]; then
     [[ -n "$ip6" ]] && echo "[$ip6]" && return
+    [[ -n "$ip4_public" ]] && echo "$ip4_public" && return
     [[ -n "$ip4" ]] && echo "$ip4" && return
   else
+    [[ -n "$ip4_public" ]] && echo "$ip4_public" && return
     [[ -n "$ip4" ]] && echo "$ip4" && return
     [[ -n "$ip6" ]] && echo "[$ip6]" && return
   fi

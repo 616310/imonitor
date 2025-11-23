@@ -125,6 +125,70 @@ normalize_host() {
   echo "$host"
 }
 
+detect_private_v4() {
+  if ! command -v ip >/dev/null 2>&1; then
+    return 0
+  fi
+  ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
+    if is_private_v4 "$ip"; then
+      echo "$ip"
+      break
+    fi
+  done
+}
+
+detect_public_v4() {
+  if ! command -v ip >/dev/null 2>&1; then
+    return 0
+  fi
+  ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
+    if ! is_private_v4 "$ip"; then
+      echo "$ip"
+      break
+    fi
+  done
+}
+
+detect_public_v6() {
+  if ! command -v ip >/dev/null 2>&1; then
+    return 0
+  fi
+  ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1
+}
+
+ask_yes() {
+  local msg="$1" default="$2" ans
+  local hint="[Y/n]"
+  if [[ "$default" =~ ^[Yy]$ ]]; then
+    hint="[Y/n]"
+  else
+    hint="[y/N]"
+  fi
+  read -r -p "$msg $hint: " ans
+  if [[ -z "$ans" ]]; then
+    ans="$default"
+  fi
+  [[ "$ans" =~ ^[Yy]$ ]]
+}
+
+format_bind() {
+  local host="$1" port="$2"
+  if [[ "$host" == *:* && "$host" != \[* ]]; then
+    echo "[${host}]:${port}"
+  else
+    echo "${host}:${port}"
+  fi
+}
+
+format_url() {
+  local host="$1" port="$2"
+  if [[ "$host" == *:* && "$host" != \[* ]]; then
+    echo "http://[${host}]:${port}"
+  else
+    echo "http://${host}:${port}"
+  fi
+}
+
 ensure_binary() {
   local bin="$SOURCE_DIR/bin/imonitor"
   if [[ -x "$bin" ]]; then
@@ -170,13 +234,9 @@ PORT="8080"
 ADMIN_USER="admin"
 OFFLINE_TIMEOUT="10"
 
-HOST_DETECTED=$(detect_public_addr)
-ALT_HOST=$(detect_alt_addr "$HOST_DETECTED")
 INSTALL_DIR=$(prompt_default "安装目录" "${INSTALL_DIR}")
 RUN_USER=$(prompt_default "运行用户 (将自动创建)" "${RUN_USER}")
 PORT=$(prompt_default "服务监听端口" "${PORT}")
-ADDR_INPUT=$(prompt_default "公网访问地址/域名（留空自动检测）" "${HOST_DETECTED}")
-HOST_NORMALIZED=$(normalize_host "$ADDR_INPUT")
 ADMIN_USER=$(prompt_default "管理员用户名" "${ADMIN_USER}")
 ADMIN_PASS_INPUT=$(prompt_secret "管理员密码" "")
 if [[ -z "$ADMIN_PASS_INPUT" ]]; then
@@ -186,8 +246,57 @@ else
   ADMIN_PASS="$ADMIN_PASS_INPUT"
 fi
 
-PUBLIC_URL="http://${HOST_NORMALIZED}:${PORT}"
-BIND_ADDR="[::]:${PORT}"
+LAN_V4=$(detect_private_v4 || true)
+PUB_V4=$(detect_public_v4 || true)
+PUB_V6=$(detect_public_v6 || true)
+BIND_LIST=()
+PUBLIC_URLS=()
+
+add_binding() {
+  local label="$1" host_input="$2"
+  [[ -z "$host_input" ]] && return
+  local host
+  host=$(normalize_host "$host_input")
+  BIND_LIST+=("$(format_bind "$host" "$PORT")")
+  PUBLIC_URLS+=("$(format_url "$host" "$PORT")")
+}
+
+if [[ -n "$LAN_V4" ]]; then
+  if ask_yes "绑定内网 IPv4 (${LAN_V4})" "Y"; then
+    read -r -p "内网 IPv4 地址 [${LAN_V4}]: " v; v=${v:-$LAN_V4}
+    add_binding "内网 IPv4" "$v"
+  fi
+fi
+
+if [[ -n "$PUB_V4" ]]; then
+  if ask_yes "绑定公网 IPv4 (${PUB_V4})" "Y"; then
+    read -r -p "公网 IPv4 地址 [${PUB_V4}]: " v; v=${v:-$PUB_V4}
+    add_binding "公网 IPv4" "$v"
+  fi
+else
+  read -r -p "未检测到公网 IPv4，如需绑定请输入（留空跳过）: " v
+  add_binding "公网 IPv4" "$v"
+fi
+
+if [[ -n "$PUB_V6" ]]; then
+  if ask_yes "绑定公网 IPv6 (${PUB_V6})" "Y"; then
+    read -r -p "公网 IPv6 地址 [${PUB_V6}]: " v; v=${v:-$PUB_V6}
+    add_binding "公网 IPv6" "$v"
+  fi
+else
+  read -r -p "未检测到公网 IPv6，如需绑定请输入（留空跳过）: " v
+  add_binding "公网 IPv6" "$v"
+fi
+
+if [[ ${#BIND_LIST[@]} -eq 0 ]]; then
+  read -r -p "未选择任何地址，默认绑定所有接口 [0.0.0.0]: " v
+  v=${v:-0.0.0.0}
+  add_binding "默认" "$v"
+fi
+
+BIND_ADDR=$(IFS=,; echo "${BIND_LIST[*]}")
+PUBLIC_URLS_STR=$(IFS=,; echo "${PUBLIC_URLS[*]}")
+PRIMARY_URL="${PUBLIC_URLS[0]}"
 
 echo "[1/4] 创建系统用户 ${RUN_USER}"
 if ! id -u "$RUN_USER" >/dev/null 2>&1; then
@@ -213,7 +322,7 @@ Type=simple
 User=${RUN_USER}
 Group=${RUN_USER}
 WorkingDirectory=${INSTALL_DIR}
-Environment=IMONITOR_PUBLIC_URL=${PUBLIC_URL}
+Environment=IMONITOR_PUBLIC_URL=${PUBLIC_URLS_STR}
 Environment=IMONITOR_BIND=${BIND_ADDR}
 Environment=IMONITOR_ADMIN_USER=${ADMIN_USER}
 Environment=IMONITOR_ADMIN_PASS=${ADMIN_PASS}
@@ -233,10 +342,14 @@ systemctl daemon-reload
 systemctl enable --now imonitor-lite.service
 
 echo
-echo "安装完成。访问地址：${PUBLIC_URL}"
-if [[ -n "${ALT_HOST:-}" ]]; then
-  echo "也可访问：http://${ALT_HOST}:${PORT}"
-fi
+echo "安装完成。访问地址："
+for url in "${PUBLIC_URLS[@]}"; do
+  echo "  - ${url}"
+done
+echo "接入节点命令："
+for url in "${PUBLIC_URLS[@]}"; do
+  echo "  curl -fsSL ${url}/install.sh | bash -s -- --token=<TOKEN> --endpoint=${url}"
+done
 echo "管理员账号：${ADMIN_USER}"
 echo "管理员密码：${ADMIN_PASS}"
 echo "如需修改地址/端口/凭据：编辑 ${SERVICE_FILE} 后 systemctl daemon-reload && systemctl restart imonitor-lite.service"
