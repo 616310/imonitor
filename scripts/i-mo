@@ -25,6 +25,21 @@ prompt() {
   echo "${var:-$default}"
 }
 
+ask_yes() {
+  local msg="$1" default="$2" ans
+  local hint="[Y/n]"
+  if [[ "$default" =~ ^[Yy]$ ]]; then
+    hint="[Y/n]"
+  else
+    hint="[y/N]"
+  fi
+  read -r -p "$msg $hint: " ans
+  if [[ -z "$ans" ]]; then
+    ans="$default"
+  fi
+  [[ "$ans" =~ ^[Yy]$ ]]
+}
+
 line_in_file() {
   local pattern="$1" file="$2" replacement="$3"
   if grep -q "^${pattern}" "$file"; then
@@ -268,6 +283,10 @@ ctrl_set_port() {
   line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${new_bind}"
   cur_public=$(ctrl_env "IMONITOR_PUBLIC_URL")
   new_public=$(rewrite_public_url_port "$cur_public" "$port")
+  # ensure至少有一个地址
+  if [[ -z "$new_public" ]]; then
+    new_public="http://127.0.0.1:${port}"
+  fi
   line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${new_public}"
   echo "端口已更新为 ${port}"
   systemctl daemon-reload
@@ -283,6 +302,9 @@ ctrl_set_bind_mode() {
   lan_v4=$(detect_private_v4_addr || true)
   pub_v4=$(detect_public_v4_addr || true)
   pub_v6=$(detect_public_v6_addr || true)
+  if [[ -z "$pub_v4" && -z "$lan_v4" ]]; then
+    lan_v4=$(detect_ip "v4")
+  fi
   binds=()
   urls=()
 
@@ -315,6 +337,10 @@ ctrl_set_bind_mode() {
     fi
   else
     read -r -p "未检测到公网 IPv4，如需绑定请输入（留空跳过）: " v
+    if [[ -z "$v" && -n "$lan_v4" ]]; then
+      echo "未检测到公网 IPv4，使用内网地址 ${lan_v4}"
+      v="$lan_v4"
+    fi
     add_choice "$v"
   fi
 
@@ -341,6 +367,9 @@ ctrl_set_bind_mode() {
   local new_bind new_urls
   new_bind=$(IFS=,; echo "${binds[*]}")
   new_urls=$(IFS=,; echo "${urls[*]}")
+  if [[ -z "$new_urls" ]]; then
+    new_urls="http://127.0.0.1:${port}"
+  fi
   line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${new_bind}"
   line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${new_urls}"
   echo "监听已更新为:"
