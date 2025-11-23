@@ -253,7 +253,7 @@ BIND_LIST=()
 PUBLIC_URLS=()
 
 add_binding() {
-  local label="$1" host_input="$2"
+  local host_input="$1"
   [[ -z "$host_input" ]] && return
   local host
   host=$(normalize_host "$host_input")
@@ -263,35 +263,38 @@ add_binding() {
 
 if [[ -n "$LAN_V4" ]]; then
   if ask_yes "绑定内网 IPv4 (${LAN_V4})" "Y"; then
-    read -r -p "内网 IPv4 地址 [${LAN_V4}]: " v; v=${v:-$LAN_V4}
-    add_binding "内网 IPv4" "$v"
+    read -r -p "内网 IPv4 地址 [${LAN_V4}]: " v
+    v=${v:-$LAN_V4}
+    add_binding "$v"
   fi
 fi
 
 if [[ -n "$PUB_V4" ]]; then
   if ask_yes "绑定公网 IPv4 (${PUB_V4})" "Y"; then
-    read -r -p "公网 IPv4 地址 [${PUB_V4}]: " v; v=${v:-$PUB_V4}
-    add_binding "公网 IPv4" "$v"
+    read -r -p "公网 IPv4 地址 [${PUB_V4}]: " v
+    v=${v:-$PUB_V4}
+    add_binding "$v"
   fi
 else
   read -r -p "未检测到公网 IPv4，如需绑定请输入（留空跳过）: " v
-  add_binding "公网 IPv4" "$v"
+  add_binding "$v"
 fi
 
 if [[ -n "$PUB_V6" ]]; then
   if ask_yes "绑定公网 IPv6 (${PUB_V6})" "Y"; then
-    read -r -p "公网 IPv6 地址 [${PUB_V6}]: " v; v=${v:-$PUB_V6}
-    add_binding "公网 IPv6" "$v"
+    read -r -p "公网 IPv6 地址 [${PUB_V6}]: " v
+    v=${v:-$PUB_V6}
+    add_binding "$v"
   fi
 else
   read -r -p "未检测到公网 IPv6，如需绑定请输入（留空跳过）: " v
-  add_binding "公网 IPv6" "$v"
+  add_binding "$v"
 fi
 
 if [[ ${#BIND_LIST[@]} -eq 0 ]]; then
   read -r -p "未选择任何地址，默认绑定所有接口 [0.0.0.0]: " v
   v=${v:-0.0.0.0}
-  add_binding "默认" "$v"
+  add_binding "$v"
 fi
 
 BIND_ADDR=$(IFS=,; echo "${BIND_LIST[*]}")
