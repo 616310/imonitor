@@ -134,6 +134,10 @@ rewrite_single_url_port() {
   else
     host="${host%%:*}"
   fi
+  # wrap IPv6
+  if [[ "$host" == *:* ]]; then
+    host="[${host}]"
+  fi
   echo "${scheme}://${host}:${port}${path}"
 }
 
@@ -153,7 +157,7 @@ rewrite_bind_port_list() {
   for b in "${binds[@]}"; do
     [[ -z "$b" ]] && continue
     local host="${b%:*}"
-    out+=("${host}:${port}")
+    out+=("$(format_bind_addr "$host" "$port")")
   done
   (IFS=,; echo "${out[*]}")
 }
