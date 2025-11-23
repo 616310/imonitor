@@ -300,19 +300,25 @@ ctrl_set_port() {
   default_port=$(ctrl_bind_port)
   port=$(prompt "新的服务端口" "${default_port:-8080}")
   bind_raw=$(ctrl_env "IMONITOR_BIND")
-  new_bind=$(rewrite_bind_port_list "${bind_raw:-[::]:${port}}" "$port")
-  [[ -z "$new_bind" ]] && new_bind="[::]:${port}"
-  line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${new_bind}"
+  if [[ -z "$bind_raw" ]]; then
+    bind_raw="[::]:${default_port:-8080}"
+  fi
+  new_bind=$(rewrite_bind_port_list "${bind_raw}" "$port")
+  if [[ -z "$new_bind" ]]; then
+    new_bind="[::]:${port}"
+  fi
   cur_public=$(ctrl_env "IMONITOR_PUBLIC_URL")
-  new_public=$(rewrite_public_url_port "$cur_public" "$port")
-  # ensure至少有一个地址
+  new_public=$(rewrite_public_url_port "${cur_public:-http://127.0.0.1:${default_port:-8080}}" "$port")
   if [[ -z "$new_public" ]]; then
     new_public="http://127.0.0.1:${port}"
   fi
+  line_in_file "Environment=IMONITOR_BIND" "$CTRL_UNIT" "Environment=IMONITOR_BIND=${new_bind}"
   line_in_file "Environment=IMONITOR_PUBLIC_URL" "$CTRL_UNIT" "Environment=IMONITOR_PUBLIC_URL=${new_public}"
   echo "端口已更新为 ${port}"
   systemctl daemon-reload
   ctrl_restart
+  echo "当前配置："
+  grep -E '^Environment=IMONITOR_(BIND|PUBLIC_URL)' "$CTRL_UNIT" || true
 }
 
 ctrl_set_bind_mode() {
