@@ -115,6 +115,7 @@ rewrite_single_url_port() {
   local url="$1" port="$2"
   [[ -z "$url" ]] && url="http://127.0.0.1:${port}"
   local scheme="http" rest host path
+  local already_bracketed=0
   if [[ "$url" == *"://"* ]]; then
     scheme="${url%%://*}"
     rest="${url#*://}"
@@ -131,11 +132,12 @@ rewrite_single_url_port() {
     if [[ "$suffix" == :* ]]; then
       host="${host:0:$((closing_len+1))}"
     fi
+    already_bracketed=1
   else
     host="${host%%:*}"
   fi
-  # wrap IPv6
-  if [[ "$host" == *:* ]]; then
+  # wrap IPv6 only if not already wrapped
+  if [[ "$host" == *:* && $already_bracketed -eq 0 ]]; then
     host="[${host}]"
   fi
   echo "${scheme}://${host}:${port}${path}"
