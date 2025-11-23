@@ -192,10 +192,26 @@ detect_public_v4_addr() {
   if ! command -v ip >/dev/null 2>&1; then
     return 0
   fi
-  ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
+  local found=""
+  found=$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
     if ! is_private_v4 "$ip"; then
       echo "$ip"
       break
+    fi
+  done)
+  if [[ -n "$found" ]]; then
+    echo "$found"
+    return
+  fi
+  # NAT 场景，尝试外部服务
+  for cmd in \
+    "curl -4 -s https://api.ipify.org" \
+    "curl -4 -s https://ifconfig.co"
+  do
+    found=$(bash -lc "$cmd" 2>/dev/null | tr -d ' \n\r')
+    if [[ -n "$found" ]]; then
+      echo "$found"
+      return
     fi
   done
 }

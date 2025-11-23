@@ -52,7 +52,6 @@ detect_public_addr() {
   fi
   if [[ -n "$v4_public" ]]; then echo "$v4_public"; return; fi
   if [[ -n "$v6_public" ]]; then echo "$v6_public"; return; fi
-  if [[ -n "$v4_any" ]]; then echo "$v4_any"; return; fi
   # Fallback to external services（适用于只有私网地址时）
   for cmd in \
     "curl -4 -s https://ifconfig.co" \
@@ -61,6 +60,7 @@ detect_public_addr() {
     addr=$(bash -lc "$cmd" 2>/dev/null | tr -d ' \n\r')
     if [[ -n "$addr" ]]; then echo "$addr"; return; fi
   done
+  if [[ -n "$v4_any" ]]; then echo "$v4_any"; return; fi
   echo "127.0.0.1"
 }
 
