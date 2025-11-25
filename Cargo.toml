@@ -1,7 +1,11 @@
 [package]
 name = "imonitor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+description = "Self-hosted server monitoring panel with a Rust backend, Vue dashboard, and lightweight agent."
+license = "MIT"
+repository = "https://github.com/616310/imonitor"
+readme = "README.md"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros", "multipart"] }
