@@ -369,11 +369,7 @@ async fn musl_loader(State(state): State<AppState>) -> Result<impl IntoResponse,
     Ok((headers, bytes))
 }
 
-async fn list_nodes_handler(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<NodesResponse>, AppError> {
-    require_auth(&headers, &state.settings)?;
+async fn list_nodes_handler(State(state): State<AppState>) -> Result<Json<NodesResponse>, AppError> {
     let nodes = list_nodes(
         &state.data_dir.join("imonitor.db"),
         state.settings.offline_timeout,
