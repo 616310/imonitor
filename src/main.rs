@@ -21,7 +21,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use tokio::{fs, net::TcpListener, signal, sync::RwLock, task::JoinSet};
 use tower_http::services::ServeDir;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -211,16 +211,21 @@ async fn main() -> anyhow::Result<()> {
         .or_else(|| public_urls.get(0).cloned())
         .unwrap_or_else(|| "http://127.0.0.1:8080".into());
     let bind_raw = std::env::var("IMONITOR_BIND").unwrap_or_else(|_| "[::]:8080".into());
-    let bind_addrs: Vec<SocketAddr> = bind_raw
-        .split(',')
-        .map(|s| s.trim())
-        .filter_map(|s| s.parse().ok())
-        .collect();
-    let bind_addrs = if bind_addrs.is_empty() {
-        vec!["[::]:8080".parse().unwrap()]
-    } else {
-        bind_addrs
-    };
+    let mut bind_addrs: Vec<SocketAddr> = Vec::new();
+    for entry in bind_raw.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        match entry.parse() {
+            Ok(addr) => bind_addrs.push(addr),
+            Err(err) => warn!(%entry, %err, "failed to parse bind address"),
+        }
+    }
+    if bind_addrs.is_empty() {
+        warn!(value = %bind_raw, "no valid bind addresses provided, falling back to [::]:8080");
+        bind_addrs.push("[::]:8080".parse().unwrap());
+    }
     let settings = Settings {
         public_url,
         public_urls,
@@ -267,18 +272,33 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mut servers: JoinSet<Result<(), std::io::Error>> = JoinSet::new();
+    let mut bound_any = false;
     for addr in state.settings.bind_addrs.iter().copied() {
-        let app = app.clone();
-        servers.spawn(async move {
-            let listener = TcpListener::bind(addr).await?;
-            info!("listening on {}", addr);
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-        });
+        match TcpListener::bind(addr).await {
+            Ok(listener) => {
+                bound_any = true;
+                let app = app.clone();
+                servers.spawn(async move {
+                    info!("listening on {}", addr);
+                    axum::serve(
+                        listener,
+                        app.into_make_service_with_connect_info::<SocketAddr>(),
+                    )
+                    .with_graceful_shutdown(shutdown_signal())
+                    .await
+                });
+            }
+            Err(err) => {
+                error!(%addr, %err, "failed to bind address");
+            }
+        }
+    }
+
+    if !bound_any {
+        return Err(anyhow::anyhow!(
+            "failed to bind any address from IMONITOR_BIND={}",
+            bind_raw
+        ));
     }
 
     while let Some(res) = servers.join_next().await {
