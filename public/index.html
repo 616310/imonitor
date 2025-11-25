@@ -49,6 +49,19 @@
         .pop-enter-active, .pop-leave-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
         .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92) translateY(15px); }
     </style>
+    <script>
+        (function() {
+            try {
+                var cached = localStorage.getItem('imonitorBgCache');
+                if (cached) {
+                    var sanitized = cached.replace(/["\\]/g, '\\$&');
+                    document.documentElement.style.setProperty('--bg-url', 'url("' + sanitized + '")');
+                }
+            } catch (err) {
+                console.warn('背景缓存不可用', err);
+            }
+        })();
+    </script>
 </head>
 <body class="antialiased min-h-screen pb-10">
 <div id="app" v-cloak class="min-h-screen flex flex-col items-center py-6 px-4 sm:px-8 md:py-10">
@@ -378,6 +391,7 @@
 <script>
 const { createApp, ref, onMounted, computed } = Vue;
 const DEFAULT_BG = 'https://images.unsplash.com/photo-1496504175726-c7b4523c7e81?q=80&w=2617&auto=format&fit=crop';
+const BG_CACHE_KEY = 'imonitorBgCache';
 
 createApp({
     setup() {
@@ -400,11 +414,47 @@ createApp({
         const loginPassword = ref('');
         const loginError = ref('');
         const authHeader = ref(localStorage.getItem('imonitorAuth') || '');
-        const backgroundUrl = ref('');
+        const backgroundUrl = ref(DEFAULT_BG);
         const showBgModal = ref(false);
         const bgInput = ref('');
         const bgNotice = ref('');
         const bgFile = ref(null);
+        const cachedBg = (() => {
+            try {
+                return localStorage.getItem(BG_CACHE_KEY) || '';
+            } catch (_) {
+                return '';
+            }
+        })();
+        const sanitizeForCss = (url) => (url || '').replace(/["\\]/g, '\\$&');
+        const setBackgroundStyle = (url) => {
+            const resolved = url && url.trim() ? url : DEFAULT_BG;
+            document.documentElement.style.setProperty('--bg-url', `url("${sanitizeForCss(resolved)}")`);
+        };
+        const cacheBackground = (url) => {
+            try {
+                localStorage.setItem(BG_CACHE_KEY, url);
+            } catch (_) {}
+        };
+        const preloadBackground = (url) => {
+            if (!url) return;
+            const img = new Image();
+            img.src = url;
+        };
+        const applyBackground = (url, shouldCache = false) => {
+            const resolved = url && url.trim() ? url : DEFAULT_BG;
+            backgroundUrl.value = resolved;
+            setBackgroundStyle(resolved);
+            if (shouldCache) {
+                cacheBackground(resolved);
+            }
+            preloadBackground(resolved);
+        };
+        if (cachedBg) {
+            applyBackground(cachedBg);
+        } else {
+            setBackgroundStyle(DEFAULT_BG);
+        }
 
         const fetchNodes = async () => {
             try {
@@ -437,10 +487,11 @@ createApp({
                 if (!res.ok) throw new Error('加载失败');
                 const data = await res.json();
                 if (data.background_url) {
-                    backgroundUrl.value = data.background_url;
-                    document.body.style.setProperty('--bg-url', `url('${backgroundUrl.value}')`);
-                    bgInput.value = backgroundUrl.value === DEFAULT_BG ? '' : backgroundUrl.value;
+                    applyBackground(data.background_url, true);
+                } else {
+                    applyBackground(DEFAULT_BG, true);
                 }
+                bgInput.value = backgroundUrl.value === DEFAULT_BG ? '' : backgroundUrl.value;
             } catch (err) {
                 console.error(err);
             }
@@ -568,8 +619,7 @@ createApp({
                     body: JSON.stringify({ background_url: bgInput.value })
                 });
                 if (!res.ok) throw new Error('保存失败');
-                backgroundUrl.value = bgInput.value;
-                document.body.style.setProperty('--bg-url', `url('${backgroundUrl.value}')`);
+                applyBackground(bgInput.value, true);
                 bgNotice.value = '背景已更新';
                 setTimeout(() => (bgNotice.value = ''), 1500);
             } catch (err) {
@@ -599,8 +649,7 @@ createApp({
                 });
                 if (!res.ok) throw new Error('上传失败');
                 const data = await res.json();
-                backgroundUrl.value = data.background_url;
-                document.body.style.setProperty('--bg-url', `url('${backgroundUrl.value}')`);
+                applyBackground(data.background_url, true);
                 bgNotice.value = '背景已更新';
                 setTimeout(() => (bgNotice.value = ''), 1500);
             } catch (err) {
